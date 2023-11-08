@@ -16,46 +16,25 @@ import org.junit.jupiter.api.Test;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
-import org.testcontainers.utility.DockerImageName;
-//import neo4j.clients.jedis.JedisPooled;
-
+import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-//import org.neo4j.driver.AuthTokens;
-//import org.neo4j.driver.Driver;
-//import org.neo4j.driver.GraphDatabase;
-import org.testcontainers.containers.Neo4jContainer;
-
-//import org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration;
-//import org.springframework.ai.document.Document;
-//import org.springframework.ai.embedding.EmbeddingClient;
-//import org.springframework.boot.SpringBootConfiguration;
-//import org.springframework.boot.autoconfigure.AutoConfigurations;
-//import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-//import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-//import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-//import org.springframework.context.annotation.Bean;
+import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
 
 import static dev.langchain4j.internal.Utils.randomUUID;
 import static java.util.Arrays.asList;
-import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.data.Percentage.withPercentage;
-
-// TODO - CONTROL OTHER TESTS, E.G. WeaviateEmbeddingStoreTest
 
 @Testcontainers
 class Neo4jEmbeddingStoreTest {
     
-    // TODO - check version
     @Container
     static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.13"))
             .withRandomPassword();
 
-    private static final String HOST = "localhost";
-    private static final int PORT = 6379;
     private static final String METADATA_KEY = "test-key";
 
     private EmbeddingStore<TextSegment> embeddingStore;
@@ -70,18 +49,10 @@ class Neo4jEmbeddingStoreTest {
         driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic("neo4j", neo4jContainer.getAdminPassword()));
     }
 
-
-
     @BeforeEach
     void initEmptyNeo4jEmbeddingStore() {
-
-//        flushDB();
-
-        // TODO - password is needed, there is getBoltUrl()...
         embeddingStore = Neo4jEmbeddingStore.builder()
-//                .host(neo4jContainer.getBoltUrl())
                 .driver(driver)
-//                .port(neo4jContainer.get)
                 .dimension(384)
                 .build();
     }
@@ -148,13 +119,6 @@ class Neo4jEmbeddingStoreTest {
 
     @Test
     void should_add_embedding_with_segment_with_metadata() {
-
-        embeddingStore = Neo4jEmbeddingStore.builder()
-                .driver(driver)
-//                .port(PORT)
-                .dimension(384)
-                .metadataFieldsName(singletonList(METADATA_KEY))
-                .build();
 
         TextSegment segment = TextSegment.from(randomUUID(), Metadata.from(METADATA_KEY, "test-value"));
         Embedding embedding = embeddingModel.embed(segment.text()).content();
@@ -293,7 +257,4 @@ class Neo4jEmbeddingStoreTest {
                 withPercentage(1)
         );
     }
-    
-    // todo - try this example: https://github.com/langchain4j/langchain4j-examples/blob/main/redis-example/src/main/java/RedisEmbeddingStoreExample.java
-    //  and in case, put it into a separate pr
 }
