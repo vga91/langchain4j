@@ -9,6 +9,7 @@ import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,14 +61,17 @@ class Neo4jEmbeddingStoreTest {
     private EmbeddingStore<TextSegment> embeddingStore;
 
     private final EmbeddingModel embeddingModel = new AllMiniLmL6V2QuantizedEmbeddingModel();
+    private static Driver driver; 
+
 
     @BeforeAll
     static void startContainer() {
         neo4jContainer.start();
+        driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic("neo4j", neo4jContainer.getAdminPassword()));
     }
 
-    
-    
+
+
     @BeforeEach
     void initEmptyNeo4jEmbeddingStore() {
 
@@ -76,21 +80,16 @@ class Neo4jEmbeddingStoreTest {
         // TODO - password is needed, there is getBoltUrl()...
         embeddingStore = Neo4jEmbeddingStore.builder()
 //                .host(neo4jContainer.getBoltUrl())
-                .driver(getNeo4jDriver())
+                .driver(driver)
 //                .port(neo4jContainer.get)
                 .dimension(384)
                 .build();
     }
 
-    private static Driver getNeo4jDriver() {
-        return GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic("neo4j", neo4jContainer.getAdminPassword()));
+    @AfterEach
+    void afterEach() {
+        driver.session().run("MATCH (n) DETACH DELETE n");
     }
-
-//    private static void flushDB() {
-//        try (JedisPooled jedis = new JedisPooled(HOST, PORT)) {
-//            jedis.flushDB();
-//        }
-//    }
 
     @Test
     void should_add_embedding() {
@@ -151,7 +150,7 @@ class Neo4jEmbeddingStoreTest {
     void should_add_embedding_with_segment_with_metadata() {
 
         embeddingStore = Neo4jEmbeddingStore.builder()
-                .driver(getNeo4jDriver())
+                .driver(driver)
 //                .port(PORT)
                 .dimension(384)
                 .metadataFieldsName(singletonList(METADATA_KEY))

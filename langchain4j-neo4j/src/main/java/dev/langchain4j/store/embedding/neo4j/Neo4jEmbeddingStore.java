@@ -1,15 +1,16 @@
 package dev.langchain4j.store.embedding.neo4j;
 
-import com.google.gson.Gson;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
-import org.neo4j.cypherdsl.support.schema_name.SchemaNames;
-import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.GraphDatabase;
+import lombok.Getter;
+import org.neo4j.driver.Record;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +20,11 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
+import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.Utils.isCollectionEmpty;
 import static dev.langchain4j.internal.Utils.randomUUID;
 import static dev.langchain4j.internal.ValidationUtils.*;
+import static dev.langchain4j.store.embedding.neo4j.MetricType.COSINE;
 import static java.lang.String.format;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
@@ -41,30 +44,69 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
 
     private static final Logger log = LoggerFactory.getLogger(Neo4jEmbeddingStore.class);
-    private static final Gson GSON = new Gson();
     // TODO ??
-    private static final String DEFAULT_EMBEDDING_PROPERTY = "embedding";
-    public static final String EMBEDDING_PROP = "embeddingProp";
+//    private static final String DEFAULT_EMBEDDING_PROPERTY = "embedding";
+    public static final String DEFAULT_EMBEDDING_PROP = "embeddingProp";
     public static final String ID_PROP = "idProp";
     public static final String PROPS = "props";
+    public static final String DEFAULT_IDX_NAME = "langchain-embedding-index";
+    private static final String DEFAULT_LABEL = "Document";
 
     // TODO - maybe in Neo4jSchema?
     private final Driver driver;
 //    private final Session session;
 //    private final SessionConfig sessionConfig;
-    private final Neo4jSchema schema;
+//    private final Neo4jSchema schema;
 
+
+    @AllArgsConstructor
+    @Getter
+    public enum Neo4jDistanceType {
+        COSINE("cosine"), EUCLIDEAN("euclidean");
+        private final String value;
+    }
+
+    public static final String SCORE_FIELD_NAME = "vector_score";
+    private static final String JSON_PATH_PREFIX = "$.";
+    //    private static final VectorAlgorithm DEFAULT_VECTOR_ALGORITHM = HNSW;
+    private static final MetricType DEFAULT_METRIC_TYPE = COSINE;
+
+    /* Neo4j schema field settings */
+
+    @Builder.Default
+    private String indexName = DEFAULT_IDX_NAME;
+    @Builder.Default
+    private String prefix = "embedding:";
+    @Builder.Default
+    private String vectorFieldName = "vector";
+    @Builder.Default
+    private String scalarFieldName = "text";
+
+    @Builder.Default
+    private String embeddingProperty = "embedding";
+
+    // TODO - IS USED ??
+    @Builder.Default
+    private List<String> metadataFieldsName = new ArrayList<>();
+
+    @Builder.Default
+    private Neo4jSchema.Neo4jDistanceType distanceType = Neo4jSchema.Neo4jDistanceType.COSINE;
 
     @Builder.Default
     private SessionConfig config = SessionConfig.forDatabase("neo4j");
-    
+
+    private int dimension;
+
+    //    @Builder.Default
+    private String label;// = "Document";
+
     /**
      * Creates an instance of Neo4jEmbeddingStore
      *
 //     * @param host               Neo4j Stack Server host
 //     * @param port               Neo4j Stack Server port
-     * @param user               Neo4j Stack username (optional)
-     * @param password           Neo4j Stack password (optional)
+//     * @param user               Neo4j Stack username (optional)
+//     * @param password           Neo4j Stack password (optional)
      * @param dimension          embedding vector dimension
      * @param metadataFieldsName metadata fields name (optional)
      */
@@ -73,8 +115,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             // TODO - MAYBE CHANGE NAME..
 //            String host,
 //            Integer port,
-            String user,
-            String password,
+//            String user,
+//            String password,
             SessionConfig config,
             Driver driver,
             // todo - useful?
@@ -89,6 +131,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         ensureNotNull(dimension, "dimension");
 
         this.driver = driver;
+        // todo - needed?
+        this.label = getOrDefault(label, DEFAULT_LABEL);
+        this.embeddingProperty = getOrDefault(property, DEFAULT_EMBEDDING_PROP);
+        this.metadataFieldsName = metadataFieldsName;
+//        this.dimension = getOrDefault(dimension, )
+        this.dimension = dimension;
+        this.indexName = getOrDefault(indexName, DEFAULT_IDX_NAME);//indexName, ;
         
 //        user = getValOrDefault(user);
 //        dbName = getValOrDefault(dbName);
@@ -99,13 +148,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 //        this.session = driver.session(sessionConfig);
 
 //        TODO - DECOMMENT label = SchemaNames.sanitize(label).orElse("Document");
-        this.schema = Neo4jSchema.builder()
-                .dimension(dimension)
-                .metadataFieldsName(metadataFieldsName)
-                .label(label)
-                .embeddingProperty(property)
-                .indexName(indexName)
-                .build();
+//        this.schema = Neo4jSchema.builder()
+//                .dimension(dimension)
+//                .metadataFieldsName(metadataFieldsName)
+//                .label(label)
+//                .embeddingProperty(property)
+//                .indexName(indexName)
+//                .build();
         
         createIndexIfNotExist();
     }
@@ -176,26 +225,61 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
     @Override
     public List<EmbeddingMatch<TextSegment>> findRelevant(Embedding referenceEmbedding, int maxResults, double minScore) {
+        var embeddingValue = Values.value(referenceEmbedding.vector());
         
-        
-//        // Using KNN query on @vector field
-//        String queryTemplate = "*=>[ KNN %d @%s $BLOB AS %s ]";
-//        List<String> returnFields = new ArrayList<>(schema.getMetadataFieldsName());
-//        returnFields.addAll(asList(schema.getVectorFieldName(), schema.getScalarFieldName(), SCORE_FIELD_NAME));
-//        Query query = new Query(format(queryTemplate, maxResults, schema.getVectorFieldName(), SCORE_FIELD_NAME))
-//                .addParam("BLOB", ToByteArray(referenceEmbedding.vector()))
-//                .returnFields(returnFields.toArray(new String[0]))
-//                .setSortBy(SCORE_FIELD_NAME, true)
-//                .dialect(2);
-//
-//        SearchResult result = client.ftSearch(schema.getIndexName(), query);
-//        List<Document> documents = result.getDocuments();
-//
-//        return toEmbeddingMatch(documents, minScore);
-        
-        
-        return null;
+//        var embedding = Values.value(toFloatArray(this.embeddingClient.embed(query)));
+        try (var session = session()) {
+            return session
+                    .run("""
+						CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
+						YIELD node, score
+						WHERE score >= $minScore
+						RETURN node, score
+						""", Map.of("indexName", indexName, 
+                            "embeddingValue", embeddingValue, 
+                            "minScore", minScore, 
+                            "maxResults", maxResults))
+                    .list(this::toEmbeddingMatch);
+        }
     }
+
+    private EmbeddingMatch<TextSegment> toEmbeddingMatch(Record record) {
+        var node = record.get("node").asNode();
+        
+        var metaData = new HashMap<String, String>();
+        node.keys().forEach(key -> {
+            if (key.startsWith("metadata.")) {
+                metaData.put(key.substring(key.indexOf(".") + 1), node.get(key).asString());
+            }
+        });
+
+        Metadata metadata = new Metadata(metaData);
+
+        // todo - if null asString fails??
+        Value text1 = node.get("text");
+//        String text = text1.asString();
+        TextSegment textSegment = text1.isNull()
+                ? null
+                : TextSegment.from(text1.asString(), metadata);
+        
+//        metaData.
+
+        List<Number> embeddingList = node.get(this.embeddingProperty).asList(Value::asNumber);
+
+        Embedding embedding = new Embedding(toFloatArray(embeddingList));
+
+        return new EmbeddingMatch<>(record.get("score").asDouble(), node.get("id").asString(), embedding, textSegment);
+    }
+    
+    private static float[] toFloatArray(List<Number> numberList) {
+        float[] embeddingFloat = new float[numberList.size()];
+        int i = 0;
+        for(Number num: numberList) {
+            embeddingFloat[i++] = num.floatValue();
+        }
+        return embeddingFloat;
+    }
+    
 
     // todo - maybe create index after MERGE nodes
     private void createIndex(String indexName) {
@@ -205,10 +289,10 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
         Map<String, Object> objectObjectHashMap = new HashMap<>();
         objectObjectHashMap.put("indexName", indexName);
-        objectObjectHashMap.put("label", schema.getLabel());
-        objectObjectHashMap.put("embeddingProperty", schema.getEmbeddingProperty());
-        objectObjectHashMap.put("embeddingDimension", schema.getDimension());
-        objectObjectHashMap.put("distanceType", schema.getDistanceType().getValue());
+        objectObjectHashMap.put("label", label);
+        objectObjectHashMap.put("embeddingProperty", embeddingProperty);
+        objectObjectHashMap.put("embeddingDimension", dimension);
+        objectObjectHashMap.put("distanceType", distanceType.getValue());
         
         // create vector index
         withEmptySession(session -> {
@@ -234,11 +318,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         Map<String, Object> objectObjectHashMap = new HashMap<>();
         objectObjectHashMap.put("name", indexName);
         return withSession(session -> {
-            boolean name = session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name",
+            return session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name",
                                     objectObjectHashMap)
                             .hasNext();
-            System.out.println("name = " + name);
-                    return name;
                 }
         );
     }
@@ -312,20 +394,21 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 						CALL db.create.setVectorProperty(u, $embeddingProperty, row.%3$s)
 						RETURN *
              */
-            String statement = String.format("UNWIND $rows AS row\n" +
-                             "MERGE (u:%1$s {id: row.2$s})\n" +
-                             "SET u += row.%3$s\n" +
-                             "WITH row, u\n" +
-                             "CALL db.create.setVectorProperty(u, $embeddingProperty, row.%4$s)\n" +
-                             "RETURN *",
-                            this.schema.getLabel(),
-                    ID_PROP,
-                    PROPS,
-                    EMBEDDING_PROP);
+            String statement = """
+                            UNWIND $rows AS row
+                            MERGE (u:%1$s {id: row.%2$s})
+                            SET u += row.%3$s
+                            WITH row, u
+                            CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
+                            RETURN *""".formatted(
+                            this.label, 
+                            ID_PROP, 
+                            PROPS,
+                    DEFAULT_EMBEDDING_PROP);
 
             Map<String, Object> map = new HashMap<>();
             map.put("rows", rows);
-            map.put("embeddingProperty", this.schema.getEmbeddingProperty());
+            map.put("embeddingProperty", this.embeddingProperty);
             
             session.run(statement,
                             map)
@@ -337,29 +420,29 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private Map<String, Object> toRecord(int i, List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
         String id = ids.get(i);
         Embedding embedding = embeddings.get(i);
-        TextSegment segment = embedded.get(i);
         
         Map<String, Object> row = new HashMap<>();
         row.put(ID_PROP, id);
 
         Map<String, Object> properties = new HashMap<>();
-        properties.put("text", segment.text());
-        
-        Map<String, String> metadata = segment.metadata().asMap();
-        metadata.forEach((k,v) -> properties.put("metadata." + k, Values.value(v)));
+        if (embedded != null) {
+            TextSegment segment = embedded.get(i);
+            properties.put("text", segment.text());
+            Map<String, String> metadata = segment.metadata().asMap();
+            metadata.forEach((k, v) -> properties.put("metadata." + k, Values.value(v)));
+        }
         
 
         // TODO - dimensions what is??...
         // TODO - ??
-        row.put(EMBEDDING_PROP, Values.value(embedding.vector()));
+        row.put(DEFAULT_EMBEDDING_PROP, Values.value(embedding.vector()));
         row.put(PROPS, properties);
         return row;
     }
 
     private void createIndexIfNotExist() {
-        String idxName = schema.getIndexName();
-        if (!isIndexExist(idxName)) {
-            createIndex(idxName);
+        if (!isIndexExist(indexName)) {
+            createIndex(indexName);
         }
     }
 
