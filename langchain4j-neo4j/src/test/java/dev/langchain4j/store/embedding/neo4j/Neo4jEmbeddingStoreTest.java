@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Session;
 import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -30,36 +31,39 @@ import static org.assertj.core.data.Percentage.withPercentage;
 
 @Testcontainers
 class Neo4jEmbeddingStoreTest {
-    
+
+    public static final String USERNAME = "neo4j";
+    public static final String ADMIN_PASSWORD = "adminPass";
     @Container
     static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.13"))
-            .withRandomPassword();
+            .withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
 
     private EmbeddingStore<TextSegment> embeddingStore;
 
     private final EmbeddingModel embeddingModel = new AllMiniLmL6V2QuantizedEmbeddingModel();
-    private static Driver driver; 
+    private static Session session; 
 
 
     @BeforeAll
     static void startContainer() {
         neo4jContainer.start();
-        driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic("neo4j", neo4jContainer.getAdminPassword()));
+        Driver driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic(USERNAME, ADMIN_PASSWORD));
+        session = driver.session();
     }
 
     @BeforeEach
     void initEmptyNeo4jEmbeddingStore() {
         embeddingStore = Neo4jEmbeddingStore.builder()
-                .driver(driver)
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .dimension(384)
                 .build();
     }
 
     @AfterEach
     void afterEach() {
-        driver.session().run("MATCH (n) DETACH DELETE n");
+        session.run("MATCH (n) DETACH DELETE n");
     }
 
     @Test

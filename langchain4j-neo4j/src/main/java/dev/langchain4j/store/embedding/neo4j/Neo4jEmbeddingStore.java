@@ -6,6 +6,8 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.Builder;
 import lombok.Getter;
+import org.neo4j.driver.AuthTokens;
+import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Values;
 import org.slf4j.Logger;
@@ -41,12 +43,22 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     /* Neo4j schema field settings */
     private final int dimension;
     private final Neo4jDistanceType distanceType;
-    
+
     private final String indexName;
     private final String metadataPrefix;
     private final String embeddingProperty;
     private final String label;
     private final String text;
+
+    /**
+     * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
+     * starting from uri, user and password
+     */
+    public static class Neo4jEmbeddingStoreBuilder {
+        public Neo4jEmbeddingStoreBuilder withBasicAuth(String uri, String user, String password) {
+            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
+        }
+    }
 
     /**
      * Creates an instance of Neo4jEmbeddingStore
@@ -140,9 +152,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 						YIELD node, score
 						WHERE score >= $minScore
 						RETURN node, score
-						""", Map.of("indexName", indexName, 
-                            "embeddingValue", embeddingValue, 
-                            "minScore", minScore, 
+						""", Map.of("indexName", indexName,
+                            "embeddingValue", embeddingValue,
+                            "minScore", minScore,
                             "maxResults", maxResults))
                     .list(item -> Neo4jEmbeddingUtils.toEmbeddingMatch(this, item));
         }
@@ -182,9 +194,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                             WITH row, u
                             CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
                             RETURN *""".formatted(
-                            this.label,
-                    ID_ROW_KEY, 
-                            PROPS,
+                    this.label,
+                    ID_ROW_KEY,
+                    PROPS,
                     EMBEDDINGS_ROW_KEY);
 
             Map<String, Object> params = Map.of(
@@ -203,12 +215,11 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private void createIndex(String indexName) {
-        Map<String, Object> params = new HashMap<>();
-        params.put("indexName", indexName);
-        params.put("label", label);
-        params.put("embeddingProperty", embeddingProperty);
-        params.put("embeddingDimension", dimension);
-        params.put("distanceType", distanceType.getValue());
+        Map<String, Object> params = Map.of("indexName", indexName,
+                "label", label,
+                "embeddingProperty", embeddingProperty,
+                "embeddingDimension", dimension,
+                "distanceType", distanceType.getValue());
 
         // create vector index
         try (var session = session()) {
@@ -220,11 +231,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private boolean indexExists(String indexName) {
-        Map<String, Object> objectObjectHashMap = new HashMap<>();
-        objectObjectHashMap.put("name", indexName);
         try (var session = session()) {
-            return session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name",
-                            objectObjectHashMap)
+            Map<String, Object> params = Map.of("name", indexName);
+            return session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name", params)
                     .hasNext();
         }
     }
