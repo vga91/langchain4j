@@ -17,17 +17,28 @@ import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.Value;
+import org.neo4j.driver.types.Node;
 import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static dev.langchain4j.internal.Utils.randomUUID;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_EMBEDDING_PROP;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_METADATA_PREFIX;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_TEXT_PROP;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.ID_ROW_KEY;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.data.Percentage.withPercentage;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @Testcontainers
 class Neo4jEmbeddingStoreTest {
@@ -68,7 +79,6 @@ class Neo4jEmbeddingStoreTest {
 
     @Test
     void should_add_embedding() {
-
         Embedding embedding = embeddingModel.embed(randomUUID()).content();
 
         String id = embeddingStore.add(embedding);
@@ -82,6 +92,9 @@ class Neo4jEmbeddingStoreTest {
         assertThat(match.embeddingId()).isEqualTo(id);
         assertThat(match.embedding()).isEqualTo(embedding);
         assertThat(match.embedded()).isNull();
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
     }
 
     @Test
@@ -100,6 +113,10 @@ class Neo4jEmbeddingStoreTest {
         assertThat(match.embeddingId()).isEqualTo(id);
         assertThat(match.embedding()).isEqualTo(embedding);
         assertThat(match.embedded()).isNull();
+
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
     }
 
     @Test
@@ -119,6 +136,13 @@ class Neo4jEmbeddingStoreTest {
         assertThat(match.embeddingId()).isEqualTo(id);
         assertThat(match.embedding()).isEqualTo(embedding);
         assertThat(match.embedded()).isEqualTo(segment);
+
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> {
+            List<String> otherProps = List.of(DEFAULT_TEXT_PROP);
+            checkLabelAndDefaultProps(embedding, match, iterator.next(), otherProps);
+        });
     }
 
     @Test
@@ -138,6 +162,12 @@ class Neo4jEmbeddingStoreTest {
         assertThat(match.embeddingId()).isEqualTo(id);
         assertThat(match.embedding()).isEqualTo(embedding);
         assertThat(match.embedded()).isEqualTo(segment);
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> {
+            List<String> otherProps = List.of(DEFAULT_TEXT_PROP, DEFAULT_METADATA_PREFIX + METADATA_KEY);
+            checkLabelAndDefaultProps(embedding, match, iterator.next(), otherProps);
+        });
     }
 
     @Test
@@ -163,6 +193,12 @@ class Neo4jEmbeddingStoreTest {
         assertThat(secondMatch.embeddingId()).isEqualTo(ids.get(1));
         assertThat(secondMatch.embedding()).isEqualTo(secondEmbedding);
         assertThat(secondMatch.embedded()).isNull();
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> {
+            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next());
+            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next());
+        });
     }
 
     @Test
@@ -193,6 +229,13 @@ class Neo4jEmbeddingStoreTest {
         assertThat(secondMatch.embeddingId()).isEqualTo(ids.get(1));
         assertThat(secondMatch.embedding()).isEqualTo(secondEmbedding);
         assertThat(secondMatch.embedded()).isEqualTo(secondSegment);
+
+        checkEntitiesCreated(relevant.size(), 
+                iterator -> {
+            List<String> otherProps = List.of(DEFAULT_TEXT_PROP);
+            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next(), otherProps);
+            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next(), otherProps);
+        });
     }
 
     @Test
@@ -240,6 +283,12 @@ class Neo4jEmbeddingStoreTest {
         );
         assertThat(relevant4).hasSize(1);
         assertThat(relevant4.get(0).embeddingId()).isEqualTo(firstId);
+
+        checkEntitiesCreated(relevant.size(),
+                iterator -> {
+            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next());
+            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next());
+        });
     }
 
     @Test
@@ -260,5 +309,48 @@ class Neo4jEmbeddingStoreTest {
                 RelevanceScore.fromCosineSimilarity(CosineSimilarity.between(embedding, referenceEmbedding)),
                 withPercentage(1)
         );
+        
+        checkEntitiesCreated(relevant.size(),
+                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
+
+    }
+
+    private void checkEntitiesCreated(int expectedSize, Consumer<Iterator<Node>> nodeConsumer) {
+        List<Node> n = session.run("MATCH (n) RETURN n")
+                .list(i -> i.get("n").asNode());
+
+        assertThat(n).hasSize(expectedSize);
+
+        Iterator<Node> iterator = n.iterator();
+        nodeConsumer.accept(iterator);
+
+        assertThat(iterator).isExhausted();
+    }
+
+    private void checkLabelAndDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node) {
+        checkLabelAndDefaultProps(embedding, match, node, List.of());
+    }
+
+    private void checkLabelAndDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node, List<String> otherProps) {
+        assertEquals(List.of(DEFAULT_LABEL), node.labels());
+
+        checkPropKeys(node, otherProps);
+
+        assertThat(node.get(ID_ROW_KEY).asString()).isEqualTo(match.embeddingId());
+
+        List<Float> floats = node.get(DEFAULT_EMBEDDING_PROP).asList(Value::asFloat);
+        assertThat(floats).isEqualTo(embedding.vectorAsList());
+    }
+
+    private void checkPropKeys(Node node, List<String> otherProps) {
+        List<String> strings = new ArrayList<>();
+        // default props
+        strings.add(ID_ROW_KEY);
+        strings.add(DEFAULT_EMBEDDING_PROP);
+        // other props
+        strings.addAll(otherProps);
+
+        assertThat(node.keys())
+                .containsExactlyInAnyOrderElementsOf(strings);
     }
 }

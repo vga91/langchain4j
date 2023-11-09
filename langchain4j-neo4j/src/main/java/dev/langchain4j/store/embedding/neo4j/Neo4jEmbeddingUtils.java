@@ -16,7 +16,7 @@ public class Neo4jEmbeddingUtils {
     
     /* not-configurable strings, used in `UNWIND $rows ...` statement */
     public static final String EMBEDDINGS_ROW_KEY = "embeddingRow";
-    public static final String ID_ROW_KEY = "idProp";
+    public static final String ID_ROW_KEY = "id";
     
     /* default configs */
     public static final String DEFAULT_EMBEDDING_PROP = "embeddingProp";
@@ -48,10 +48,10 @@ public class Neo4jEmbeddingUtils {
 
         Embedding embedding = new Embedding(toFloatArray(embeddingList));
 
-        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(), node.get("id").asString(), embedding, textSegment);
+        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(), node.get(ID_ROW_KEY).asString(), embedding, textSegment);
     }
     
-    private static float[] toFloatArray(List<Number> numberList) {
+    public static float[] toFloatArray(List<Number> numberList) {
         float[] embeddingFloat = new float[numberList.size()];
         int i = 0;
         for(Number num: numberList) {
@@ -60,16 +60,16 @@ public class Neo4jEmbeddingUtils {
         return embeddingFloat;
     }
 
-    public static Map<String, Object> toRecord(Neo4jEmbeddingStore store, int i, List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
-        String id = ids.get(i);
-        Embedding embedding = embeddings.get(i);
+    public static Map<String, Object> toRecord(Neo4jEmbeddingStore store, int idx, List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
+        String id = ids.get(idx);
+        Embedding embedding = embeddings.get(idx);
 
         Map<String, Object> row = new HashMap<>();
         row.put(ID_ROW_KEY, id);
 
         Map<String, Object> properties = new HashMap<>();
         if (embedded != null) {
-            TextSegment segment = embedded.get(i);
+            TextSegment segment = embedded.get(idx);
             properties.put(store.getText(), segment.text());
             Map<String, String> metadata = segment.metadata().asMap();
             metadata.forEach((k, v) -> properties.put(store.getMetadataPrefix() + k, Values.value(v)));

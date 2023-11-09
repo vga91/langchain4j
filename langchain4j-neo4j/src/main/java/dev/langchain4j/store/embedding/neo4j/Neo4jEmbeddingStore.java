@@ -183,13 +183,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private void bulk(List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
 
         List<Map<String, Object>> rows = IntStream.range(0, ids.size())
-                .mapToObj(i -> toRecord(this, i, ids, embeddings, embedded))
+                .mapToObj(idx -> toRecord(this, idx, ids, embeddings, embedded))
                 .toList();
 
         try (var session = session()) {
             String statement = """
                             UNWIND $rows AS row
-                            MERGE (u:%1$s {id: row.%2$s})
+                            MERGE (u:%1$s {%2$s: row.%2$s})
                             SET u += row.%3$s
                             WITH row, u
                             CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
@@ -209,32 +209,32 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private void createIndexIfNotExist() {
-        if (!indexExists(indexName)) {
-            createIndex(indexName);
+        if (!indexExists()) {
+            createIndex();
         }
     }
 
-    private void createIndex(String indexName) {
-        Map<String, Object> params = Map.of("indexName", indexName,
-                "label", label,
-                "embeddingProperty", embeddingProperty,
-                "embeddingDimension", dimension,
-                "distanceType", distanceType.getValue());
+    private boolean indexExists() {
+        try (var session = session()) {
+            Map<String, Object> params = Map.of("name", this.indexName);
+            return session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name", params)
+                    .hasNext();
+        }
+    }
+
+    private void createIndex() {
+        Map<String, Object> params = Map.of("indexName", this.indexName,
+                "label", this.label,
+                "embeddingProperty", this.embeddingProperty,
+                "dimension", this.dimension,
+                "distanceType", this.distanceType.getValue());
 
         // create vector index
         try (var session = session()) {
-            session.run("CALL db.index.vector.createNodeIndex($indexName, $label, $embeddingProperty, $embeddingDimension, $distanceType)",
+            session.run("CALL db.index.vector.createNodeIndex($indexName, $label, $embeddingProperty, $dimension, $distanceType)",
                     params);
 
             session.run("CALL db.awaitIndexes()").consume();
-        }
-    }
-
-    private boolean indexExists(String indexName) {
-        try (var session = session()) {
-            Map<String, Object> params = Map.of("name", indexName);
-            return session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name", params)
-                    .hasNext();
         }
     }
 
