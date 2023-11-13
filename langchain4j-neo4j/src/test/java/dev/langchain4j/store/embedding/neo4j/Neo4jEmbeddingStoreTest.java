@@ -38,7 +38,6 @@ import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.ID_ROW_K
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.data.Percentage.withPercentage;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @Testcontainers
 class Neo4jEmbeddingStoreTest {
@@ -94,7 +93,7 @@ class Neo4jEmbeddingStoreTest {
         assertThat(match.embedded()).isNull();
 
         checkEntitiesCreated(relevant.size(), 
-                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
+                iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
     @Test
@@ -116,7 +115,7 @@ class Neo4jEmbeddingStoreTest {
 
 
         checkEntitiesCreated(relevant.size(), 
-                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
+                iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
     @Test
@@ -141,7 +140,7 @@ class Neo4jEmbeddingStoreTest {
         checkEntitiesCreated(relevant.size(), 
                 iterator -> {
             List<String> otherProps = List.of(DEFAULT_TEXT_PROP);
-            checkLabelAndDefaultProps(embedding, match, iterator.next(), otherProps);
+            checkDefaultProps(embedding, match, iterator.next(), otherProps);
         });
     }
 
@@ -166,7 +165,7 @@ class Neo4jEmbeddingStoreTest {
         checkEntitiesCreated(relevant.size(), 
                 iterator -> {
             List<String> otherProps = List.of(DEFAULT_TEXT_PROP, DEFAULT_METADATA_PREFIX + METADATA_KEY);
-            checkLabelAndDefaultProps(embedding, match, iterator.next(), otherProps);
+            checkDefaultProps(embedding, match, iterator.next(), otherProps);
         });
     }
 
@@ -196,8 +195,8 @@ class Neo4jEmbeddingStoreTest {
 
         checkEntitiesCreated(relevant.size(), 
                 iterator -> {
-            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next());
-            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next());
+            checkDefaultProps(firstEmbedding, firstMatch, iterator.next());
+            checkDefaultProps(secondEmbedding, secondMatch, iterator.next());
         });
     }
 
@@ -233,8 +232,8 @@ class Neo4jEmbeddingStoreTest {
         checkEntitiesCreated(relevant.size(), 
                 iterator -> {
             List<String> otherProps = List.of(DEFAULT_TEXT_PROP);
-            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next(), otherProps);
-            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next(), otherProps);
+            checkDefaultProps(firstEmbedding, firstMatch, iterator.next(), otherProps);
+            checkDefaultProps(secondEmbedding, secondMatch, iterator.next(), otherProps);
         });
     }
 
@@ -286,8 +285,8 @@ class Neo4jEmbeddingStoreTest {
 
         checkEntitiesCreated(relevant.size(),
                 iterator -> {
-            checkLabelAndDefaultProps(firstEmbedding, firstMatch, iterator.next());
-            checkLabelAndDefaultProps(secondEmbedding, secondMatch, iterator.next());
+            checkDefaultProps(firstEmbedding, firstMatch, iterator.next());
+            checkDefaultProps(secondEmbedding, secondMatch, iterator.next());
         });
     }
 
@@ -311,12 +310,13 @@ class Neo4jEmbeddingStoreTest {
         );
         
         checkEntitiesCreated(relevant.size(),
-                iterator -> checkLabelAndDefaultProps(embedding, match, iterator.next()));
-
+                iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
     private void checkEntitiesCreated(int expectedSize, Consumer<Iterator<Node>> nodeConsumer) {
-        List<Node> n = session.run("MATCH (n) RETURN n")
+        String query = "MATCH (n:%s) RETURN n".formatted(DEFAULT_LABEL);
+        
+        List<Node> n = session.run(query)
                 .list(i -> i.get("n").asNode());
 
         assertThat(n).hasSize(expectedSize);
@@ -327,13 +327,11 @@ class Neo4jEmbeddingStoreTest {
         assertThat(iterator).isExhausted();
     }
 
-    private void checkLabelAndDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node) {
-        checkLabelAndDefaultProps(embedding, match, node, List.of());
+    private void checkDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node) {
+        checkDefaultProps(embedding, match, node, List.of());
     }
 
-    private void checkLabelAndDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node, List<String> otherProps) {
-        assertEquals(List.of(DEFAULT_LABEL), node.labels());
-
+    private void checkDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node, List<String> otherProps) {
         checkPropKeys(node, otherProps);
 
         assertThat(node.get(ID_ROW_KEY).asString()).isEqualTo(match.embeddingId());
