@@ -41,18 +41,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.assertj.core.data.Percentage.withPercentage;
 
-//@Testcontainers
+@Testcontainers
 class Neo4jEmbeddingStoreTest {
 
     public static final String USERNAME = "neo4j";
     public static final String ADMIN_PASSWORD = "adminPass";
-//    public static final String LABEL_TO_SANITIZE = "Document1";
-//    public static final String LABEL_TO_SANITIZE = "Document22";
     public static final String LABEL_TO_SANITIZE = "Label ` to \\ sanitize";
     
-//    @Container
-//    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0-enterprise"))
-//            .withAdminPassword(ADMIN_PASSWORD);
+    @Container
+    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0-enterprise"))
+            .withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
 
@@ -64,31 +62,25 @@ class Neo4jEmbeddingStoreTest {
 
     @BeforeAll
     static void startContainer() {
-//        neo4jContainer.start();
-        Driver driver = GraphDatabase.driver("bolt://localhost:7687", AuthTokens.basic("neo4j", "apoc1234"));
-//        Driver driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic(USERNAME, ADMIN_PASSWORD));
+        neo4jContainer.start();
+        Driver driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.basic(USERNAME, ADMIN_PASSWORD));
         session = driver.session();
     }
 
     @BeforeEach
     void initEmptyNeo4jEmbeddingStore() {
         embeddingStore = Neo4jEmbeddingStore.builder()
-                .withBasicAuth("bolt://localhost:7687", "neo4j", "apoc1234")
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .dimension(384)
                 .label(LABEL_TO_SANITIZE)
                 .build();
-//        embeddingStore = Neo4jEmbeddingStore.builder()
-//                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
-//                .dimension(384)
-//                .label(LABEL_TO_SANITIZE)
-//                .build();
     }
 
     @AfterEach
     void afterEach() {
         session.run("MATCH (n) DETACH DELETE n");
-//        String indexName = ((Neo4jEmbeddingStore) embeddingStore).getIndexName();
-//        session.run("DROP INDEX " + SchemaNames.sanitize(indexName).get());
+        String indexName = ((Neo4jEmbeddingStore) embeddingStore).getIndexName();
+        session.run("DROP INDEX " + SchemaNames.sanitize(indexName).get());
     }
 
     @Test
@@ -166,22 +158,37 @@ class Neo4jEmbeddingStoreTest {
     @Test
     void should_add_embedding_with_segment_with_custom_metadata_prefix() {
         String metadataPrefix = "metadata.";
-//        embeddingStore = Neo4jEmbeddingStore.builder()
-//                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
-//                .dimension(384)
-//                .metadataPrefix(metadataPrefix)
-//                .build();
+        String labelName = "CustomLabelName";
         embeddingStore = Neo4jEmbeddingStore.builder()
-                .withBasicAuth("bolt://localhost:7687", "neo4j", "apoc1234")
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .dimension(384)
                 .metadataPrefix(metadataPrefix)
-                .label("CustomLabelName")
+                .label(labelName)
                 .indexName("customIdxName")
                 .build();
         
         String metadataCompleteKey = metadataPrefix + METADATA_KEY;
 
-        checkSegmentWithMetadata(metadataCompleteKey, "CustomLabelName");
+        checkSegmentWithMetadata(metadataCompleteKey, labelName);
+    }
+
+    @Test
+    void should_add_embedding_with_segment_with_metadata_and_custom_id_prop() {
+        String metadataPrefix = "metadata.";
+        String customIdProp = "customId ` & Prop ` To Sanitize";
+
+        embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .metadataPrefix(metadataPrefix)
+                .label("CustomLabelName")
+                .indexName("customIdxName")
+                .idProperty(customIdProp)
+                .build();
+
+        String metadataCompleteKey = metadataPrefix + METADATA_KEY;
+
+        checkSegmentWithMetadata(metadataCompleteKey, customIdProp, "CustomLabelName");
     }
 
 
@@ -331,16 +338,10 @@ class Neo4jEmbeddingStoreTest {
     @Test
     void should_throw_error_if_another_index_name_with_different_label_exists() {
         String metadataPrefix = "metadata.";
-//        embeddingStore = Neo4jEmbeddingStore.builder()
-//                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
-//                .dimension(384)
-//                .metadataPrefix(metadataPrefix)
-//                .build();
-
         String idxName = "WillFail";
         
         embeddingStore = Neo4jEmbeddingStore.builder()
-                .withBasicAuth("bolt://localhost:7687", "neo4j", "apoc1234")
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .dimension(384)
                 .indexName(idxName)
                 .metadataPrefix(metadataPrefix)
@@ -349,7 +350,7 @@ class Neo4jEmbeddingStoreTest {
         String secondLabel = "Second label";
         try {
             embeddingStore = Neo4jEmbeddingStore.builder()
-                    .withBasicAuth("bolt://localhost:7687", "neo4j", "apoc1234")
+                    .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                     .dimension(384)
                     .label(secondLabel)
                     .indexName(idxName)
@@ -363,6 +364,10 @@ class Neo4jEmbeddingStoreTest {
     }
 
     private void checkSegmentWithMetadata(String metadataKey, String labelName) {
+        checkSegmentWithMetadata(metadataKey, DEFAULT_ID_PROP, labelName);
+    }
+
+    private void checkSegmentWithMetadata(String metadataKey, String idProp, String labelName) {
         TextSegment segment = TextSegment.from(randomUUID(), Metadata.from(METADATA_KEY, "test-value"));
         Embedding embedding = embeddingModel.embed(segment.text()).content();
 
@@ -381,7 +386,7 @@ class Neo4jEmbeddingStoreTest {
         checkEntitiesCreated(relevant.size(), labelName,
                 iterator -> {
                     List<String> otherProps = Arrays.asList(DEFAULT_TEXT_PROP, metadataKey);
-                    checkDefaultProps(embedding, match, iterator.next(), otherProps);
+                    checkDefaultProps(embedding, idProp, match, iterator.next(), otherProps);
                 });
     }
 
@@ -404,22 +409,26 @@ class Neo4jEmbeddingStoreTest {
     }
 
     private void checkDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node) {
-        checkDefaultProps(embedding, match, node, Collections.emptyList());
+        checkDefaultProps(embedding, DEFAULT_ID_PROP, match, node, Collections.emptyList());
     }
 
     private void checkDefaultProps(Embedding embedding, EmbeddingMatch<TextSegment> match, Node node, List<String> otherProps) {
-        checkPropKeys(node, otherProps);
+        checkDefaultProps(embedding, DEFAULT_ID_PROP, match, node, otherProps);
+    }
 
-        assertThat(node.get(DEFAULT_ID_PROP).asString()).isEqualTo(match.embeddingId());
+    private void checkDefaultProps(Embedding embedding, String idProp, EmbeddingMatch<TextSegment> match, Node node, List<String> otherProps) {
+        checkPropKeys(node, idProp, otherProps);
+
+        assertThat(node.get(idProp).asString()).isEqualTo(match.embeddingId());
 
         List<Float> floats = node.get(DEFAULT_EMBEDDING_PROP).asList(Value::asFloat);
         assertThat(floats).isEqualTo(embedding.vectorAsList());
     }
 
-    private void checkPropKeys(Node node, List<String> otherProps) {
+    private void checkPropKeys(Node node, String idProp, List<String> otherProps) {
         List<String> strings = new ArrayList<>();
         // default props
-        strings.add(DEFAULT_ID_PROP);
+        strings.add(idProp);
         strings.add(DEFAULT_EMBEDDING_PROP);
         // other props
         strings.addAll(otherProps);

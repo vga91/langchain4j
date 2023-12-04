@@ -14,7 +14,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -27,17 +26,12 @@ public class Neo4jEmbeddingUtils {
     /* not-configurable strings, just used under-the-hood in `UNWIND $rows ...` statement */
     public static final String EMBEDDINGS_ROW_KEY = "embeddingRow";
     
-    // todo - change it with config
-//    public static final String ID_ROW_KEY = "id";
-    
     /* default configs */
     public static final String DEFAULT_ID_PROP = "id";
     public static final String DEFAULT_DATABASE_NAME = "neo4j";
     public static final String DEFAULT_EMBEDDING_PROP = "embedding";
     public static final String PROPS = "props";
-    public static final String DEFAULT_IDX_NAME = "langchain-embedding-index";
-//    public static final String DEFAULT_IDX_NAME = "langchain-document-index";
-//    public static final String DEFAULT_IDX_NAME = "langchain-document-index";
+    public static final String DEFAULT_IDX_NAME = "langchain-document-index";
     public static final String DEFAULT_LABEL = "Document";
     public static final String DEFAULT_TEXT_PROP = "text";
     
@@ -47,10 +41,6 @@ public class Neo4jEmbeddingUtils {
 
         Map<String, String> metaData = new HashMap<>();
         node.keys().forEach(key -> {
-//            Set<String> notMetaKeys = Arrays.asList(store.getIdProperty(), store.getEmbeddingProperty(), store.getText())
-//                    .stream()
-//                    .collect(Collectors.toSet());
-//            Set<String> notMetaKeys = Arrays.asList(DEFAULT_ID_PROP, store.getEmbeddingProperty(), store.getText())
             Set<String> notMetaKeys = Arrays.asList(store.getIdProperty(), store.getEmbeddingProperty(), store.getText())
                     .stream()
                     .collect(Collectors.toSet());
@@ -70,9 +60,10 @@ public class Neo4jEmbeddingUtils {
 
         Embedding embedding = new Embedding(toFloatArray(embeddingList));
 
-//        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(), node.get(DEFAULT_ID_PROP).asString(), embedding, textSegment);
-        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(), node.get(store.getIdProperty()).asString(), embedding, textSegment);
-//        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(), node.get(store.getIdProperty()).asString(), embedding, textSegment);
+        return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(),
+                node.get(store.getIdProperty()).asString(),
+                embedding,
+                textSegment);
     }
     
     public static float[] toFloatArray(List<Number> numberList) {
@@ -89,7 +80,6 @@ public class Neo4jEmbeddingUtils {
         Embedding embedding = embeddings.get(idx);
 
         Map<String, Object> row = new HashMap<>();
-//        row.put(DEFAULT_ID_PROP, id);
         row.put(store.getIdProperty(), id);
 
         Map<String, Object> properties = new HashMap<>();
@@ -113,20 +103,6 @@ public class Neo4jEmbeddingUtils {
                 .collect(Collectors.groupingBy(it -> batchCounter.getAndIncrement() / batchSize))
                 .values();
     }
-
-//    public static String sanitizeOrThrows(String value, String defaultValue, String config) {
-//        if (value == null) {
-//            return defaultValue;
-//        }
-//        
-//        return sanitize(value)
-//                .orElseThrow(() -> {
-//                    String invalidSanitizeValue = String.format("The value %s, to assign to configuration %s, cannot be safely quoted",
-//                            value,
-//                            config);
-//                    throw new RuntimeException(invalidSanitizeValue);
-//                });
-//    }
 
     public static String sanitizeOrThrows(String value, String config) {
         
