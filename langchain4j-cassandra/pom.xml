@@ -84,14 +84,14 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.honton.chas</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <configuration>
-                    <!-- org.json:json has a "Public Domain" license -->
-                    <skipCompliance>true</skipCompliance>
-                </configuration>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.honton.chas</groupId>-->
+<!--                <artifactId>license-maven-plugin</artifactId>-->
+<!--                <configuration>-->
+<!--                    &lt;!&ndash; org.json:json has a "Public Domain" license &ndash;&gt;-->
+<!--                    <skipCompliance>true</skipCompliance>-->
+<!--                </configuration>-->
+<!--            </plugin>-->
         </plugins>
     </build>
 
