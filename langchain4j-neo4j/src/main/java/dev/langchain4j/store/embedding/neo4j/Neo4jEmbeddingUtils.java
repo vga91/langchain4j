@@ -7,7 +7,6 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
-import org.neo4j.driver.types.Node;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -31,37 +30,35 @@ public class Neo4jEmbeddingUtils {
     public static final String DEFAULT_DATABASE_NAME = "neo4j";
     public static final String DEFAULT_EMBEDDING_PROP = "embedding";
     public static final String PROPS = "props";
-    public static final String DEFAULT_IDX_NAME = "langchain-document-index";
+    public static final String DEFAULT_IDX_NAME = "vector";
     public static final String DEFAULT_LABEL = "Document";
     public static final String DEFAULT_TEXT_PROP = "text";
-    
 
     public static EmbeddingMatch<TextSegment> toEmbeddingMatch(Neo4jEmbeddingStore store, Record neo4jRecord) {
-        Node node = neo4jRecord.get("node").asNode();
-
         Map<String, String> metaData = new HashMap<>();
-        node.keys().forEach(key -> {
+        neo4jRecord.get("metadata").asMap().forEach((key, value) -> {
             Set<String> notMetaKeys = Arrays.asList(store.getIdProperty(), store.getEmbeddingProperty(), store.getText())
                     .stream()
                     .collect(Collectors.toSet());
             if (!notMetaKeys.contains(key)) {
-                metaData.put(key.replace(store.getMetadataPrefix(), ""), node.get(key).asString());
+                String stringValue = value == null ? null : value.toString();
+                metaData.put(key.replace(store.getMetadataPrefix(), ""), stringValue);
             }
         });
 
         Metadata metadata = new Metadata(metaData);
 
-        Value text = node.get(store.getText());
+        Value text = neo4jRecord.get(store.getText());
         TextSegment textSegment = text.isNull()
                 ? null
                 : TextSegment.from(text.asString(), metadata);
-        List<Number> embeddingList = node.get(store.getEmbeddingProperty())
+        List<Number> embeddingList = neo4jRecord.get(store.getEmbeddingProperty())
                 .asList(Value::asNumber);
 
         Embedding embedding = new Embedding(toFloatArray(embeddingList));
 
         return new EmbeddingMatch<>(neo4jRecord.get("score").asDouble(),
-                node.get(store.getIdProperty()).asString(),
+                neo4jRecord.get(store.getIdProperty()).asString(),
                 embedding,
                 textSegment);
     }

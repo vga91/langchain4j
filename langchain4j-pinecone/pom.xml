@@ -87,14 +87,14 @@
 
     <build>
         <plugins>
-<!--            <plugin>-->
-<!--                <groupId>org.honton.chas</groupId>-->
-<!--                <artifactId>license-maven-plugin</artifactId>-->
-<!--                <configuration>-->
-<!--                    &lt;!&ndash; the pinecone module has non-permissive licenses &ndash;&gt;-->
-<!--                    <skipCompliance>true</skipCompliance>-->
-<!--                </configuration>-->
-<!--            </plugin>-->
+            <plugin>
+                <groupId>org.honton.chas</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <configuration>
+                    <!-- the pinecone module has non-permissive licenses -->
+                    <skipCompliance>true</skipCompliance>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
@@ -108,14 +108,14 @@
             </activation>
             <build>
                 <plugins>
-<!--                    <plugin>-->
-<!--                        <groupId>org.honton.chas</groupId>-->
-<!--                        <artifactId>license-maven-plugin</artifactId>-->
-<!--                        <configuration>-->
-<!--                            &lt;!&ndash; the pinecone module has non-permissive licenses &ndash;&gt;-->
-<!--                            <skipCompliance>true</skipCompliance>-->
-<!--                        </configuration>-->
-<!--                    </plugin>-->
+                    <plugin>
+                        <groupId>org.honton.chas</groupId>
+                        <artifactId>license-maven-plugin</artifactId>
+                        <configuration>
+                            <!-- the pinecone module has non-permissive licenses -->
+                            <skipCompliance>true</skipCompliance>
+                        </configuration>
+                    </plugin>
                 </plugins>
             </build>
         </profile>

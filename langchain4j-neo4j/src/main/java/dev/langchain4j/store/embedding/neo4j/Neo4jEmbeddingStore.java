@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
@@ -52,10 +53,12 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private final String idProperty;
     private final String sanitizedEmbeddingProperty;
     private final String sanitizedIdProperty;
+    private final String sanitizedText;
     private final String label;
     private final String sanitizedLabel;
     private final String text;
     private final String databaseName;
+    private final String retrievalQuery;
 
     /**
      * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
@@ -93,7 +96,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String metadataPrefix,
             String text,
             String indexName,
-            String databaseName) {
+            String databaseName,
+            String retrievalQuery) {
         
         /* required configs */
         this.driver = ensureNotNull(driver, "driver");
@@ -102,13 +106,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         /* optional configs */
         this.databaseName = getOrDefault(databaseName, DEFAULT_DATABASE_NAME);
         this.config = getOrDefault(config, SessionConfig.forDatabase(this.databaseName));
-        
         this.label = getOrDefault(label, DEFAULT_LABEL);
-
         this.embeddingProperty = getOrDefault(embeddingProperty, DEFAULT_EMBEDDING_PROP);
-        
         this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
-        
         this.distanceType = getOrDefault(distanceType, Neo4jDistanceType.COSINE);
         this.indexName = getOrDefault(indexName, DEFAULT_IDX_NAME);
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
@@ -118,9 +118,23 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
         this.sanitizedEmbeddingProperty = sanitizeOrThrows(this.embeddingProperty, "embeddingProperty");
         this.sanitizedIdProperty = sanitizeOrThrows(this.idProperty, "idProperty");
+        this.sanitizedText = sanitizeOrThrows(this.text, "text");
+
+        /* retrieval query: must necessarily return the following column:
+            `metadata`,
+            `score`,
+            `this.idProperty (default "id")`,
+            `this.text (default "text")`,
+            `this.embeddingProperty (default "embedding")`
+        */
+        String defaultRetrievalQuery = String.format(
+                "RETURN properties(node) AS metadata, node.%1$s AS %1$s, node.%2$s AS %2$s, node.%3$s AS %3$s, score",
+                this.sanitizedIdProperty, this.sanitizedText, this.sanitizedEmbeddingProperty
+        );
+        this.retrievalQuery = getOrDefault(retrievalQuery, defaultRetrievalQuery);
         
-        /* auto-index creation */
-        createIndexIfNotExist();
+        /* auto-schema creation */
+        createSchema();
     }
 
     /*
@@ -174,7 +188,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                     .run("CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)\n" +
                          "YIELD node, score\n" +
                          "WHERE score >= $minScore\n" +
-                         "RETURN node, score\n", params)
+                         retrievalQuery, 
+                        params)
                     .list(item -> Neo4jEmbeddingUtils.toEmbeddingMatch(this, item));
         }
     }
@@ -218,14 +233,26 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                 params.put("rows", rows);
                 params.put("embeddingProperty", this.embeddingProperty);
 
-                session.run(statement, params).consume();
+                session.executeWrite(tx -> tx.run(statement, params).consume());
             }
         });
     }
 
-    private void createIndexIfNotExist() {
+    private void createSchema() {
         if (!indexExists()) {
             createIndex();
+        }
+        createUniqueConstraint();
+    }
+
+    private void createUniqueConstraint() {
+        try (Session session = session()) {
+            String query = String.format(
+                    "CREATE CONSTRAINT IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE",
+                    this.sanitizedLabel,
+                    this.sanitizedIdProperty
+            );
+            session.run(query);
         }
     }
 
@@ -237,16 +264,23 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             if (!run.hasNext()) {
                 return false;
             }
-            List<String> idxLabels = run.next()
+            Record record = run.single();
+            List<String> idxLabels = record
                     .get("labelsOrTypes")
                     .asList(Value::asString);
-            if (!idxLabels.equals(Collections.singletonList(this.label))) {
-                String errMessage = String.format("It's not possible to create an index for the label `%s`, \n" +
-                                 "as there is another index with name `%s` with different label(s) (i.e. `%s`).\n" +
+            List<Object> idxProps = record.get("properties").asList();
+            
+            boolean isIndexDifferent = !idxLabels.equals(singletonList(this.label)) 
+                                       || !idxProps.equals(singletonList(this.embeddingProperty));
+            if (isIndexDifferent) {
+                String errMessage = String.format("It's not possible to create an index for the label `%s` and the property `%s`, \n" +
+                                 "as there is another index with name `%s` with different labels: `%s` and properties `%s`.\n" +
                                  "Please provide another indexName to create the vector index, or delete the existing one",
                         this.label,
+                        this.embeddingProperty,
                         this.indexName,
-                        idxLabels);
+                        idxLabels,
+                        idxProps);
                 throw new RuntimeException(errMessage);
             }
             return true;
@@ -266,7 +300,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             session.run("CALL db.index.vector.createNodeIndex($indexName, $label, $embeddingProperty, $dimension, $distanceType)",
                     params);
 
-            session.run("CALL db.awaitIndexes()").consume();
+            session.run("CALL db.awaitIndexes(60)").consume();
         }
     }
 

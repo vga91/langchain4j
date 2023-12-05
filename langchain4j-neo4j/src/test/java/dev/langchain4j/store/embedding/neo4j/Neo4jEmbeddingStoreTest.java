@@ -173,6 +173,44 @@ class Neo4jEmbeddingStoreTest {
     }
 
     @Test
+    void should_retrieve_custom_metadata_with_match() {
+        String metadataPrefix = "metadata.";
+        String labelName = "CustomLabelName";
+        embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .metadataPrefix(metadataPrefix)
+                .label(labelName)
+                .indexName("customIdxName")
+                .retrievalQuery("RETURN {foo: 'bar'} AS metadata, node.text AS text, node.embedding AS embedding, node.id AS id, score")
+                .build();
+
+        String text = randomUUID();
+        TextSegment segment = TextSegment.from(text, Metadata.from(METADATA_KEY, "test-value"));
+        Embedding embedding = embeddingModel.embed(segment.text()).content();
+
+        String id = embeddingStore.add(embedding, segment);
+        assertThat(id).isNotNull();
+
+        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embedding, 10);
+        assertThat(relevant).hasSize(1);
+
+        EmbeddingMatch<TextSegment> match = relevant.get(0);
+        assertThat(match.score()).isCloseTo(1, withPercentage(1));
+        assertThat(match.embeddingId()).isEqualTo(id);
+        assertThat(match.embedding()).isEqualTo(embedding);
+
+        TextSegment customMeta = TextSegment.from(text, Metadata.from("foo", "bar"));
+        assertThat(match.embedded()).isEqualTo(customMeta);
+
+        checkEntitiesCreated(relevant.size(), labelName,
+                iterator -> {
+                    List<String> otherProps = Arrays.asList(DEFAULT_TEXT_PROP, metadataPrefix + METADATA_KEY);
+                    checkDefaultProps(embedding, DEFAULT_ID_PROP, match, iterator.next(), otherProps);
+                });
+    }
+
+    @Test
     void should_add_embedding_with_segment_with_metadata_and_custom_id_prop() {
         String metadataPrefix = "metadata.";
         String customIdProp = "customId ` & Prop ` To Sanitize";
@@ -190,7 +228,6 @@ class Neo4jEmbeddingStoreTest {
 
         checkSegmentWithMetadata(metadataCompleteKey, customIdProp, "CustomLabelName");
     }
-
 
     @Test
     void should_add_multiple_embeddings() {
@@ -358,7 +395,9 @@ class Neo4jEmbeddingStoreTest {
                     .build();
             fail("Should fail due to idx conflict");
         } catch (RuntimeException e) {
-            String errMsg = String.format("It's not possible to create an index for the label `%s`", secondLabel);
+            String errMsg = String.format("It's not possible to create an index for the label `%s` and the property `%s`",
+                    secondLabel,
+                    DEFAULT_EMBEDDING_PROP);
             assertThat(e.getMessage()).contains(errMsg);
         }
     }
