@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
     <name>LangChain4j integration with Neo4j Vector Index</name>
 
-    <description>Requires Java 17</description>
+    <description>Requires Java 8</description>
 
     <properties>
         <testcontainers.version>1.19.0</testcontainers.version>
@@ -36,7 +36,7 @@
         <dependency>
             <groupId>org.neo4j.driver</groupId>
             <artifactId>neo4j-java-driver</artifactId>
-            <version>5.13.0</version>
+            <version>4.4.12</version>
         </dependency>
 
         <dependency>

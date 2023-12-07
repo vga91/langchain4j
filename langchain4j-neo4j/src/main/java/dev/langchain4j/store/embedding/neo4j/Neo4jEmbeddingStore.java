@@ -233,7 +233,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                 params.put("rows", rows);
                 params.put("embeddingProperty", this.embeddingProperty);
 
-                session.executeWrite(tx -> tx.run(statement, params).consume());
+                session.writeTransaction(tx -> tx.run(statement, params).consume());
             }
         });
     }
