@@ -102,7 +102,6 @@ public class Neo4jEmbeddingUtils {
     }
 
     public static String sanitizeOrThrows(String value, String config) {
-        
         return sanitize(value)
                 .orElseThrow(() -> {
                     String invalidSanitizeValue = String.format("The value %s, to assign to configuration %s, cannot be safely quoted",

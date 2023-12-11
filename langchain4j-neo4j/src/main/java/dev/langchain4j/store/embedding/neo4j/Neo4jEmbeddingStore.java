@@ -8,8 +8,6 @@ import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
-import org.neo4j.driver.Record;
-import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
@@ -17,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.Utils.isCollectionEmpty;
@@ -83,6 +80,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
      * @param text: the optional text property name (default: "text")
      * @param indexName: the optional index name (default: "langchain-embedding-index")
      * @param databaseName: the optional database name (default: "neo4j")
+     * @param retrievalQuery: the optional retrieval query 
+     *                        (default: "RETURN properties(node) AS metadata, node.`idProperty` AS `idProperty`, node.`text` AS `text`, node.`embeddingProperty` AS `embeddingProperty`, score")
      */
     @Builder
     public Neo4jEmbeddingStore(
@@ -169,26 +168,26 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     public List<String> addAll(List<Embedding> embeddings, List<TextSegment> embedded) {
         List<String> ids = embeddings.stream()
                 .map(ignored -> randomUUID())
-                .collect(Collectors.toList());
+                .toList();
         addAllInternal(ids, embeddings, embedded);
         return ids;
     }
 
     @Override
     public List<EmbeddingMatch<TextSegment>> findRelevant(Embedding referenceEmbedding, int maxResults, double minScore) {
-        Value embeddingValue = Values.value(referenceEmbedding.vector());
-        
-        try (Session session = session()) {
-            Map<String, Object> params = new HashMap<>();
-            params.put("indexName", indexName);
-            params.put("embeddingValue", embeddingValue);
-            params.put("minScore", minScore);
-            params.put("maxResults", maxResults);
+        var embeddingValue = Values.value(referenceEmbedding.vector());
+
+        try (var session = session()) {
+            Map<String, Object> params = Map.of("indexName", indexName,
+                    "embeddingValue", embeddingValue,
+                    "minScore", minScore,
+                    "maxResults", maxResults);
             return session
-                    .run("CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)\n" +
-                         "YIELD node, score\n" +
-                         "WHERE score >= $minScore\n" +
-                         retrievalQuery, 
+                    .run("""
+						CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
+						YIELD node, score
+						WHERE score >= $minScore
+						""" + retrievalQuery, 
                         params)
                     .list(item -> Neo4jEmbeddingUtils.toEmbeddingMatch(this, item));
         }
@@ -217,23 +216,25 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         Collection<List<Map<String, Object>>> rowsBatched = getRowsBatched(this, ids, embeddings, embedded);
 
         rowsBatched.forEach(rows -> {
-            try (Session session = session()) {
-                String statement = String.format("UNWIND $rows AS row\n" +
-                                     "MERGE (u:%1$s {%2$s: row.%2$s})\n" +
-                                     "SET u += row.%3$s\n" +
-                                     "WITH row, u\n" +
-                                     "CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)\n" +
-                                     "RETURN count(*)",
+            try (var session = session()) {
+                String statement = """
+                            UNWIND $rows AS row
+                            MERGE (u:%1$s {%2$s: row.%2$s})
+                            SET u += row.%3$s
+                            WITH row, u
+                            CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
+                            RETURN count(*)""".formatted(
                         this.sanitizedLabel,
                         this.sanitizedIdProperty,
                         PROPS,
                         EMBEDDINGS_ROW_KEY);
+                
+                Map<String, Object> params = Map.of(
+                        "rows", rows,
+                        "embeddingProperty", this.embeddingProperty
+                );
 
-                Map<String, Object> params = new HashMap<>();
-                params.put("rows", rows);
-                params.put("embeddingProperty", this.embeddingProperty);
-
-                session.writeTransaction(tx -> tx.run(statement, params).consume());
+                session.executeWrite(tx -> tx.run(statement, params).consume());
             }
         });
     }
@@ -246,7 +247,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private void createUniqueConstraint() {
-        try (Session session = session()) {
+        try (var session = session()) {
             String query = String.format(
                     "CREATE CONSTRAINT IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE",
                     this.sanitizedLabel,
@@ -257,14 +258,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private boolean indexExists() {
-        try (Session session = session()) {
-            Map<String, Object> params = new HashMap<>();
-            params.put("name", this.indexName);
-            Result run = session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name", params);
-            if (!run.hasNext()) {
+        try (var session = session()) {
+            Map<String, Object> params = Map.of("name", this.indexName);
+            var resIndex = session.run("SHOW INDEX WHERE type = 'VECTOR' AND name = $name", params);
+            if (!resIndex.hasNext()) {
                 return false;
             }
-            Record record = run.single();
+            var record = resIndex.single();
             List<String> idxLabels = record
                     .get("labelsOrTypes")
                     .asList(Value::asString);
@@ -273,9 +273,10 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             boolean isIndexDifferent = !idxLabels.equals(singletonList(this.label)) 
                                        || !idxProps.equals(singletonList(this.embeddingProperty));
             if (isIndexDifferent) {
-                String errMessage = String.format("It's not possible to create an index for the label `%s` and the property `%s`, \n" +
-                                 "as there is another index with name `%s` with different labels: `%s` and properties `%s`.\n" +
-                                 "Please provide another indexName to create the vector index, or delete the existing one",
+                String errMessage = String.format("""
+                                It's not possible to create an index for the label `%s` and the property `%s`,
+                                as there is another index with name `%s` with different labels: `%s` and properties `%s`.
+                                Please provide another indexName to create the vector index, or delete the existing one""",
                         this.label,
                         this.embeddingProperty,
                         this.indexName,
@@ -288,15 +289,14 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     private void createIndex() {
-        Map<String, Object> params = new HashMap<>();
-        params.put("indexName", this.indexName);
-        params.put("label", this.label);
-        params.put("embeddingProperty", this.embeddingProperty);
-        params.put("dimension", this.dimension);
-        params.put("distanceType", this.distanceType.getValue());
+        Map<String, Object> params = Map.of("indexName", this.indexName,
+                "label", this.label,
+                "embeddingProperty", this.embeddingProperty,
+                "dimension", this.dimension,
+                "distanceType", this.distanceType.getValue());
 
         // create vector index
-        try (Session session = session()) {
+        try (var session = session()) {
             session.run("CALL db.index.vector.createNodeIndex($indexName, $label, $embeddingProperty, $dimension, $distanceType)",
                     params);
 
