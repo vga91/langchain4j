@@ -108,6 +108,17 @@ class Neo4jEmbeddingStoreIT {
     @Test
     void should_add_embedding_with_id() {
 
+        // -- graph transformer???
+        
+        // ??? creo degli splitter che fanno cose???
+        
+        // --> uso embedAll per creare embeddings?
+        
+        // --> DocumentByWordSplitter split 
+        //  oppure
+        //  --> DocumentSplitterTest split
+        // --> ritorna List<TextElement>
+        
         String id = randomUUID();
         Embedding embedding = embeddingModel.embed("embedText").content();
 

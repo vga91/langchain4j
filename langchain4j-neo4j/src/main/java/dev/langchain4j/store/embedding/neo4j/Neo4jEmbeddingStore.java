@@ -59,6 +59,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private final String databaseName;
     private final String retrievalQuery;
     private final Set<String> notMetaKeys;
+    
+    private final String fullTextIndex;
+    private final String question;
 
     /**
      * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
@@ -98,7 +101,10 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String indexName,
             String databaseName,
             String retrievalQuery,
-            long awaitIndexTimeout) {
+            long awaitIndexTimeout,
+            String fullIndexName,
+            String question
+    ) {
         
         /* required configs */
         this.driver = ensureNotNull(driver, "driver");
@@ -111,9 +117,14 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         this.embeddingProperty = getOrDefault(embeddingProperty, DEFAULT_EMBEDDING_PROP);
         this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
         this.indexName = getOrDefault(indexName, DEFAULT_IDX_NAME);
+        // todo - add some configs:
+        //  -  
+        //  -
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
         this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
         this.awaitIndexTimeout = getOrDefault(awaitIndexTimeout, DEFAULT_AWAIT_INDEX_TIMEOUT);
+        this.fullTextIndex = fullIndexName;
+        this.question = question;
 
         /* sanitize labels and property names, to prevent from Cypher Injections */
         this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
@@ -173,20 +184,65 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
         var embeddingValue = Values.value(request.queryEmbedding().vector());
 
+        /*
+        write a union Cypher query where 
+        - first perform a vector similarity search 
+        - then a fulltext search. 
+        We then deduplicate the results and return the top k results.
+         */
+        
+        /*
+        ISSUE CASE:
+        CALL db.index.vector.queryNodes('pdf', $k, $question_embedding) ➥ YIELD node, score
+        WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
+        // Normalize scores
+        RETURN n.node AS node, (n.score / max) AS score
+        UNION
+        // keyword index
+        CALL db.index.fulltext.queryNodes('ftPdfChunk', $question, {limit: $k}) YIELD node, score WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
+        // Normalize scores
+        RETURN n.node AS node, (n.score / max) AS score
+         */
+        
+        // da mettere in createSchema
+            // -- CALL db.index.vector.createNodeIndex('pdf', '$label', '$embeddingProperty', 2, 'cosine')
+            // -- CREATE FULLTEXT INDEX ftPdfChunk FOR (n:Employee|Manager) ON EACH [n.name, n.team]
+        /*
+        langchain CASE:
+            CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue) 
+            YIELD node, score
+            WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
+            // Normalize scores <-- TODO - UNION??
+            RETURN n.node AS node, (n.score / max) AS score // todo - retrievalQuery?
+            UNION
+            // keyword index
+            CALL db.index.fulltext.queryNodes($fullTextIndexName, $question, {limit: $maxResults}) YIELD node, score 
+            WITH collect({node:node, score:score}) AS nodes, max(score) AS max 
+            UNWIND nodes AS n
+            // Normalize scores
+            RETURN n.node AS node, (n.score / max) AS score // todo - retrievalQuery, uguale?
+         */
+        
+        // TODO - check apoc
+
         try (var session = session()) {
+            // todo - HERE??
+
+            // TODO - retrievalQuery, how to do it??
             Map<String, Object> params = Map.of("indexName", indexName,
                     "embeddingValue", embeddingValue,
                     "minScore", request.minScore(),
                     "maxResults", request.maxResults());
 
+            String query = """
+                    CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
+                    YIELD node, score
+                    WHERE score >= $minScore
+                    """;
             List<EmbeddingMatch<TextSegment>> matches = session
-                .run("""
-                        CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
-                        YIELD node, score
-                        WHERE score >= $minScore
-                        """ + retrievalQuery,
-                    params)
-                .list(item -> toEmbeddingMatch(this, item));
+                    .run(query + retrievalQuery,
+                            params)
+                    .list(item -> toEmbeddingMatch(this, item));
 
             return new EmbeddingSearchResult<>(matches);
         }
