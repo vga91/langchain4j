@@ -1,10 +1,21 @@
 package dev.langchain4j.store.embedding.neo4j;
 
+import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.Metadata;
+import dev.langchain4j.data.document.loader.selenium.SeleniumDocumentLoader;
+import dev.langchain4j.data.document.parser.TextDocumentParser;
+import dev.langchain4j.data.document.splitter.DocumentByParagraphSplitter;
+import dev.langchain4j.data.document.splitter.DocumentByWordSplitter;
+import dev.langchain4j.data.document.transformer.jsoup.HtmlToTextDocumentTransformer;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2q.AllMiniLmL6V2QuantizedEmbeddingModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.model.output.Response;
+import dev.langchain4j.spi.data.document.splitter.DocumentSplitterFactory;
 import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
@@ -20,11 +31,15 @@ import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.types.Node;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.remote.RemoteWebDriver;
+import org.testcontainers.containers.BrowserWebDriverContainer;
 import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,6 +50,8 @@ import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static dev.langchain4j.internal.Utils.randomUUID;
+//import static dev.langchain4j.model.openai.InternalOpenAiHelper.OPENAI_DEMO_API_KEY;
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_EMBEDDING_PROP;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_ID_PROP;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_TEXT_PROP;
@@ -108,6 +125,17 @@ class Neo4jEmbeddingStoreIT {
     @Test
     void should_add_embedding_with_id() {
 
+        // TODO - CUSTOM STORE:
+        embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .label(LABEL_TO_SANITIZE)
+                .build();
+
+        // todo - wikipedia to embeddings???
+        // todo --> ma allora devo salvare anche i full text??? opzionale???
+
+
         // -- graph transformer???
         
         // ??? creo degli splitter che fanno cose???
@@ -118,23 +146,138 @@ class Neo4jEmbeddingStoreIT {
         //  oppure
         //  --> DocumentSplitterTest split
         // --> ritorna List<TextElement>
-        
-        String id = randomUUID();
-        Embedding embedding = embeddingModel.embed("embedText").content();
 
-        embeddingStore.add(id, embedding);
+        // TODO - MISSING STUFF: Neo4jVector.from_existing_graph
 
-        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embedding, 10);
+        DocumentParser parser = new TextDocumentParser();
+        HtmlToTextDocumentTransformer extractor = new HtmlToTextDocumentTransformer();
+        BrowserWebDriverContainer<?> chromeContainer = new BrowserWebDriverContainer<>()
+                .withCapabilities(new ChromeOptions());
+        chromeContainer.start();
+        RemoteWebDriver webDriver = new RemoteWebDriver(chromeContainer.getSeleniumAddress(), new ChromeOptions());
+        SeleniumDocumentLoader loader = SeleniumDocumentLoader.builder()
+                .webDriver(webDriver)
+                .timeout(Duration.ofSeconds(30))
+                .build();
+        String url = "https://en.wikipedia.org/wiki/Elizabeth_I";
+        Document document = loader.load(url, parser);
+        Document textDocument = extractor.transform(document);
+
+
+        // todo - forse non serve..
+//        EmbeddingModel model = OpenAiEmbeddingModel.builder()
+//                .baseUrl(System.getenv("OPENAI_BASE_URL"))
+//                .apiKey("demo")
+//                //.deploymentName("text-embedding-3-small")
+//                //.logRequestsAndResponses(true)
+//                .build();
+
+
+
+        final List<TextSegment> split = new DocumentByParagraphSplitter(20, 10)
+                .split(textDocument);
+
+        // final Response<List<Embedding>> listResponse = model.embedAll(split);
+
+        List<Embedding> embeddings = embeddingModel.embedAll(split).content();
+        embeddingStore.addAll(embeddings, split);
+
+        final Embedding elisabethI = embeddingModel.embed("Elisabeth I").content();
+
+        // String id = embeddingStore.add(embedding);
+
+        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(elisabethI, 10);
         assertThat(relevant).hasSize(1);
 
-        EmbeddingMatch<TextSegment> match = relevant.get(0);
-        assertThat(match.score()).isCloseTo(1, withPercentage(1));
-        assertThat(match.embeddingId()).isEqualTo(id);
-        assertThat(match.embedding()).isEqualTo(embedding);
-        assertThat(match.embedded()).isNull();
 
-        checkEntitiesCreated(relevant.size(), 
-                iterator -> checkDefaultProps(embedding, match, iterator.next()));
+        final OpenAiChatModel build = OpenAiChatModel.builder()
+                .baseUrl(System.getenv("OPENAI_BASE_URL"))
+                .apiKey("demo")
+//                .apiKey(System.getenv("OPENAI_API_KEY"))
+                .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
+                .modelName(GPT_4_O_MINI)
+                .logRequests(true)
+                .logResponses(true)
+                .build();
+// TODO - error max tokens 5000, we split the content
+        //final String wikiContent = textDocument.text().split("From Wikipedia, the free encyclopedia")[1];
+
+        String wikiContent = textDocument.text().split("Signature ")[1];
+        wikiContent = wikiContent.substring(0, 5000);
+
+//        final String userMessage = String.format("""
+//                Can you transform the following text into Cypher queries using both nodes and relationships?
+//                Each node and relation should have a single property "id",\s
+//                and each node has an additional label named __Entity__
+//                The id property values should have whitespace instead of _ or other special characters.
+//
+//                ```
+//                %s
+//                ```
+//                """,
+//                wikiContent
+//        );
+
+        final String userMessage = String.format("""
+                        Can you transform the following text into Cypher queries using both nodes and relationships?
+                        Each node and relation should have a single property "id",\s
+                        and each node has an additional label named __Entity__
+                        The id property values should have whitespace instead of _ or other special characters.
+                                        
+                        Just returns the Cypher queries ; separated,
+                        without the ``` wrapping.
+                                        
+                        ```
+                        %s
+                        ```
+                        """,
+                wikiContent
+        );
+        final String generate = build.generate(userMessage);
+
+        //final String generate = build.generate(userMessage);
+
+        System.out.println("generate = " + generate);
+        // -- to emulate generate_full_text_query
+        //          --> use CALL db.index.fulltext.queryNodes("entity", "Elizabeth~2 AND I~2") YIELD node, score
+        //                  RETURN node.id, score
+
+        // TODO --> MAYBE ChatMemoryStore to store the FullTextIndexes
+        for (String query: generate.split(";")) {
+            session.executeWrite(tx -> tx.run(query));
+        }
+
+        System.out.println("textDocument = " + textDocument.text());
+
+
+
+//        new DocumentByParagraphSplitter(100, 10)
+//                .split()
+
+        /*
+        CALL db.index.fulltext.queryNodes("entity", "Elizabeth~2 AND I~2") YIELD node, score
+        RETURN node.id, score
+         */
+
+//        String id = randomUUID();
+//        Embedding embedding = embeddingModel.embed("embedText").content();
+//
+//
+//        // new
+//
+//        embeddingStore.add(id, embedding);
+//
+//        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embedding, 10);
+//        assertThat(relevant).hasSize(1);
+//
+//        EmbeddingMatch<TextSegment> match = relevant.get(0);
+//        assertThat(match.score()).isCloseTo(1, withPercentage(1));
+//        assertThat(match.embeddingId()).isEqualTo(id);
+//        assertThat(match.embedding()).isEqualTo(embedding);
+//        assertThat(match.embedded()).isNull();
+//
+//        checkEntitiesCreated(relevant.size(),
+//                iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
     @Test

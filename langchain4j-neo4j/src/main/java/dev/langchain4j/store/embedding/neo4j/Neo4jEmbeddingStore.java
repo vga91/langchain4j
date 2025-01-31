@@ -60,8 +60,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private final String retrievalQuery;
     private final Set<String> notMetaKeys;
     
-    private final String fullTextIndex;
-    private final String question;
+    private final Map<String, String> fullTextSearch;
+    // private final String question;
 
     /**
      * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
@@ -102,8 +102,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String databaseName,
             String retrievalQuery,
             long awaitIndexTimeout,
-            String fullIndexName,
-            String question
+            Map<String, String> fullTextSearch
+            //String question
     ) {
         
         /* required configs */
@@ -123,8 +123,8 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
         this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
         this.awaitIndexTimeout = getOrDefault(awaitIndexTimeout, DEFAULT_AWAIT_INDEX_TIMEOUT);
-        this.fullTextIndex = fullIndexName;
-        this.question = question;
+        this.fullTextSearch = fullTextSearch;
+        //this.question = question;
 
         /* sanitize labels and property names, to prevent from Cypher Injections */
         this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
@@ -229,18 +229,38 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             // todo - HERE??
 
             // TODO - retrievalQuery, how to do it??
-            Map<String, Object> params = Map.of("indexName", indexName,
+            Map<String, Object> params = new HashMap<>(Map.of("indexName", indexName,
                     "embeddingValue", embeddingValue,
                     "minScore", request.minScore(),
-                    "maxResults", request.maxResults());
+                    "maxResults", request.maxResults())
+            );
 
             String query = """
                     CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
                     YIELD node, score
                     WHERE score >= $minScore
                     """;
+            String s = query + retrievalQuery;
+
+            if (fullTextSearch != null) {
+                final String fullTextIndexName = fullTextSearch.get("indexName");
+                final String question = fullTextSearch.get("question");
+                final String retrievalQueryFullText = fullTextSearch.getOrDefault("retrievalQuery", retrievalQuery);
+                s += """
+                   UNION
+                   CALL db.index.fulltext.queryNodes($fullTextIndexName, $question, {limit: $maxResults})
+                   YIELD node, score
+                   WHERE score >= $minScore
+                   """ + retrievalQueryFullText;
+
+                params.putAll(Map.of(
+                        "fullTextIndexName", fullTextIndexName,
+                        "question", question
+                ));
+            }
+
             List<EmbeddingMatch<TextSegment>> matches = session
-                    .run(query + retrievalQuery,
+                    .run(s,
                             params)
                     .list(item -> toEmbeddingMatch(this, item));
 
