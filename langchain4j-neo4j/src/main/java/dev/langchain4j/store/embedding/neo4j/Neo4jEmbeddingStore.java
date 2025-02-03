@@ -6,6 +6,7 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.filter.Filter;
 import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.AuthTokens;
@@ -174,6 +175,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         var embeddingValue = Values.value(request.queryEmbedding().vector());
 
         try (var session = session()) {
+            // todo - prefilter
+            final Filter filter = request.filter().;
+
             Map<String, Object> params = Map.of("indexName", indexName,
                     "embeddingValue", embeddingValue,
                     "minScore", request.minScore(),

@@ -7,8 +7,12 @@ import dev.langchain4j.model.embedding.onnx.allminilml6v2q.AllMiniLmL6V2Quantize
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
+import dev.langchain4j.store.embedding.filter.Filter;
+import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +36,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.stream.Collector;
 import java.util.stream.IntStream;
 
 import static dev.langchain4j.internal.Utils.randomUUID;
@@ -105,6 +110,8 @@ class Neo4jEmbeddingStoreIT {
                 iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
+
+
     @Test
     void should_add_embedding_with_id() {
 
@@ -125,6 +132,79 @@ class Neo4jEmbeddingStoreIT {
         checkEntitiesCreated(relevant.size(), 
                 iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
+
+    @Test
+    void should_add_embedding_with_id_and_retrieve_with_and_without_prefilter() {
+            /*
+    CREATE (comA:Organization {name: 'CompanyA'})-[:IN_CITY]->(:City {name: 'New York'})-[:IN_COUNTRY]->(:Country {name: 'USA'})
+    CREATE (comB:Organization {name: 'CompanyB'})-[:IN_CITY]->(:City {name: 'Toronto'})-[:IN_COUNTRY]->(:Country {name: 'Canada'})
+
+    CREATE (art1:Article {title: 'Article 1', date: date('2023-01-01'), sentiment: 0.3})-[:MENTIONS]->(comA)
+    CREATE (art2:Article {title: 'Article 2', date: date('2023-01-05'), sentiment: -0.2})-[:MENTIONS]->(comB)
+
+    CREATE (c1:Chunk {embedding: [0.1, 0.2, 0.3]})
+    CREATE (c2:Chunk {embedding: [0.4, 0.5, 0.6]})
+
+    CREATE (art1)-[:HAS_CHUNK]->(c1)
+    CREATE (art2)-[:HAS_CHUNK]->(c2)
+     */
+        // TODO
+        //  1.i 2 chunk li metto con embeddingStore
+        //  2. gli altri con query normale
+        //  3. opzione per filtrare
+        //  4. opzione senza filtro ritorna comunque qualcosa, ma fa leva sull'indice
+
+        EmbeddingStore<TextSegment> embeddingStorePrefilter = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .label("Chunk")
+                .build();
+
+//        IntStream.range(0, 10)
+//                .forEach(i -> {
+//                    final TextSegment segment = TextSegment.from(randomUUID());
+//                    embeddingModel.embed(segment.text()).content();
+//                });
+
+        //TextSegment segment1 = TextSegment.from(randomUUID());
+        //TextSegment segment2 = TextSegment.from(randomUUID());
+        final List<Embedding> embeddings = embeddingModel.embedAll(
+                IntStream.range(0, 10).boxed()
+                        .map(i -> TextSegment.from(randomUUID()))
+                        .toList()
+        ).content();
+
+        embeddingStore.addAll(embeddings);
+
+        TextSegment segmentToSearch = TextSegment.from(randomUUID());
+        Embedding embeddingToSearch = embeddingModel.embed(segmentToSearch.text()).content();
+
+        final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embeddingToSearch, 5);
+        System.out.println("relevant = " + relevant);
+
+        final EmbeddingSearchResult<TextSegment> search = embeddingStore.search(
+                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0, null)
+        );
+        System.out.println("search = " + search);
+
+        // TODO ---> MAYBE FilterParser??
+
+        final EmbeddingSearchResult<TextSegment> search2 = embeddingStore.search(
+                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0,
+                        new IsEqualTo("ajeje", "brazorf")
+                )
+        );
+        System.out.println("search2 = " + search2);
+
+
+    }
+
+    /*
+    -- https://neo4j.com/developer-blog/graph-metadata-filtering-vector-search-rag/
+    TODO
+        If all of the pre-filtering parameters are empty,
+        we can find the relevant documents using the existing vector index. Otherwise, we start preparing the base Cypher statement that will be used for the pre-filtered metadata approach.
+     */
 
     @Test
     void should_add_embedding_with_segment() {
