@@ -18,6 +18,8 @@ import dev.langchain4j.model.output.Response;
 import dev.langchain4j.spi.data.document.splitter.DocumentSplitterFactory;
 import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
 import org.junit.jupiter.api.AfterEach;
@@ -52,8 +54,10 @@ import java.util.stream.IntStream;
 import static dev.langchain4j.internal.Utils.randomUUID;
 //import static dev.langchain4j.model.openai.InternalOpenAiHelper.OPENAI_DEMO_API_KEY;
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingStore.FULL_TEXT_CONFIG_ERROR;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_EMBEDDING_PROP;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_ID_PROP;
+import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_TEXT_PROP;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -122,14 +126,202 @@ class Neo4jEmbeddingStoreIT {
                 iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
+    // todo - test con retrieval "fasullo"..
+    @Test
+    void should_throws_error_if_full_text_query_not_exists() {
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .fullTextIndexName("full_text_without_query")
+                //.fullTextQuery("Matrix")
+                //.fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix"))
+                .label(LABEL_TO_SANITIZE)
+                .build();
+
+        List<Embedding> embeddings = embeddingModel.embedAll(List.of(TextSegment.from("test"))).content();
+        embeddingStore.addAll(embeddings);
+
+        final Embedding queryEmbedding = embeddingModel.embed("Matrix").content();
+
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(3)
+                .build();
+        try {
+            embeddingStore.search(embeddingSearchRequest).matches();
+            fail("should fail due to not existent index");
+        } catch (Exception e) {
+            assertThat(e.getMessage()).contains(FULL_TEXT_CONFIG_ERROR);
+        }
+    }
+
+    @Test
+    void should_throws_error_if_full_text_retrieval_is_invalid() {
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .fullTextIndexName("full_text_with_invalid_retrieval")
+                .fullTextQuery("Matrix")
+                //.fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix"))
+                .label(LABEL_TO_SANITIZE)
+                .build();
+
+        List<Embedding> embeddings = embeddingModel.embedAll(List.of(TextSegment.from("test"))).content();
+        embeddingStore.addAll(embeddings);
+
+        final Embedding queryEmbedding = embeddingModel.embed("Matrix").content();
+
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(3)
+                .build();
+        try {
+            embeddingStore.search(embeddingSearchRequest).matches();
+            fail("should fail due to not existent index");
+        } catch (Exception e) {
+            assertThat(e.getMessage()).contains("There is no such fulltext schema index");
+        }
+
+    }
+
+    // TODO - test senza fullTextQuery
+
+    @Test
+    void should_throws_error_if_fulltext_doesnt_exist() {
+        // TODO - CUSTOM STORE:
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .fullTextIndexName("movie_text_non_existent")
+                .fullTextQuery("Matrix")
+                //.fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix"))
+                .label(LABEL_TO_SANITIZE)
+                .build();
+
+        List<Embedding> embeddings = embeddingModel.embedAll(List.of(TextSegment.from("test"))).content();
+        embeddingStore.addAll(embeddings);
+
+        final Embedding queryEmbedding = embeddingModel.embed("Matrix").content();
+
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(3)
+                .build();
+        try {
+            embeddingStore.search(embeddingSearchRequest).matches();
+            fail("should fail due to not existent index");
+        } catch (Exception e) {
+            assertThat(e.getMessage()).contains("There is no such fulltext schema index");
+        }
+    }
+
+    @Test
+    void should_get_embeddings_if_autocreate_full_text_is_true() {
+        // TODO - CUSTOM STORE:
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+
+                .fullTextIndexName("movie_text")
+                .fullTextQuery("Matrix")
+                .fullTextAutocreate(true)
+                //.fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix", "autocreate", true))
+                .label(LABEL_TO_SANITIZE)
+                .build();
+
+        List<Embedding> embeddings = embeddingModel.embedAll(List.of(TextSegment.from("test"))).content();
+        embeddingStore.addAll(embeddings);
+
+        final Embedding queryEmbedding = embeddingModel.embed("Matrix").content();
+
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(1)
+                .build();
+
+        final List<EmbeddingMatch<TextSegment>> matches = embeddingStore.search(embeddingSearchRequest).matches();
+        assertThat(matches).hasSize(1);
+    }
+
+    @Test
+    void should_add_embedding_with_id1() {
+
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .label("Movie")
+                .indexName("movie_vector")
+
+                .fullTextIndexName("movie_text")
+                .fullTextQuery("Matrix")
+        //.fullTextAutocreate(true)
+          //      .fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix"))
+                .build();
+
+        final List<String> list = List.of(
+                "The Matrix: Welcome to the Real World",
+                "The Matrix Reloaded: Free your mind",
+                "The Matrix Revolutions: Everything that has a beginning has an end",
+                "The Devil's Advocate: Evil has its winning ways",
+                "A Few Good Men: In the heart of the nation's capital, in a courthouse of the U.S. government, one man will stop at nothing to keep his honor, and one will stop at nothing to find the truth.",
+                "Top Gun: I feel the need, the need for speed.",
+                "Jerry Maguire: The rest of his life begins now.",
+                "Stand By Me: For some, it's the last real taste of innocence, and the first real taste of life. But for everyone, it's the time that memories are made of.",
+                "As Good as It Gets: A comedy from the heart that goes for the throat."
+        );
+
+        final List<TextSegment> segments = list.stream().map(TextSegment::from).toList();
+
+        List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+        embeddingStore.addAll(embeddings, segments);
+
+        final Embedding queryEmbedding = embeddingModel.embed("Matrix").content();
+
+        session.executeWrite(tx -> {
+            tx.run("CREATE FULLTEXT INDEX movie_text IF NOT EXISTS FOR (e:Movie) ON EACH [e.id]").consume();
+            return null;
+        });
+
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(3)
+                .build();
+        final List<EmbeddingMatch<TextSegment>> matches = embeddingStore.search(embeddingSearchRequest).matches();
+        assertThat(matches).hasSize(3);
+        matches.forEach(i -> {
+            final String embeddedText = i.embedded().text();
+            assertThat(embeddedText).contains("Matrix");
+        });
+
+        Neo4jEmbeddingStore embeddingStoreWithoutFullText = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .dimension(384)
+                .label("Movie")
+                .indexName("movie_vector")
+                .build();
+
+        embeddingStoreWithoutFullText.addAll(embeddings, segments);
+        final List<EmbeddingMatch<TextSegment>> matchesWithoutFullText = embeddingStore.search(embeddingSearchRequest).matches();
+        assertThat(matchesWithoutFullText).hasSize(3);
+        matches.forEach(i -> {
+            final String embeddedText = i.embedded().text();
+            assertThat(embeddedText).contains("Matrix");
+        });
+    }
+
     @Test
     void should_add_embedding_with_id() {
 
         // TODO - CUSTOM STORE:
-        embeddingStore = Neo4jEmbeddingStore.builder()
+        final String label = "Elisabeth";
+        Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder()
                 .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .dimension(384)
-                .label(LABEL_TO_SANITIZE)
+                .label(label)
+                .indexName("elisabeth_vector")
+                .fullTextIndexName("elisabeth_text")
+                .fullTextQuery("Matrix")
+                //.fullTextSearch(Map.of("indexName", "movie_text", "question", "Matrix"))
                 .build();
 
         // todo - wikipedia to embeddings???
@@ -163,6 +355,12 @@ class Neo4jEmbeddingStoreIT {
         Document document = loader.load(url, parser);
         Document textDocument = extractor.transform(document);
 
+        session.executeWrite(tx -> {
+            final String s = "CREATE FULLTEXT INDEX elisabeth_text IF NOT EXISTS FOR (e:%s) ON EACH [e.%s]"
+                    .formatted(label, DEFAULT_ID_PROP);
+            tx.run(s).consume();
+            return null;
+        });
 
         // todo - forse non serve..
 //        EmbeddingModel model = OpenAiEmbeddingModel.builder()
@@ -182,12 +380,17 @@ class Neo4jEmbeddingStoreIT {
         List<Embedding> embeddings = embeddingModel.embedAll(split).content();
         embeddingStore.addAll(embeddings, split);
 
-        final Embedding elisabethI = embeddingModel.embed("Elisabeth I").content();
+        final Embedding queryEmbedding = embeddingModel.embed("Elisabeth I").content();
 
         // String id = embeddingStore.add(embedding);
 
-        List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(elisabethI, 10);
-        assertThat(relevant).hasSize(1);
+        final EmbeddingSearchRequest embeddingSearchRequest = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(3)
+                .build();
+        //List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(elisabethI, 10);
+        final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(embeddingSearchRequest).matches();
+        assertThat(relevant).hasSize(3);
 
 
         final OpenAiChatModel build = OpenAiChatModel.builder()
@@ -219,12 +422,12 @@ class Neo4jEmbeddingStoreIT {
 //        );
 
         final String userMessage = String.format("""
-                        Can you transform the following text into Cypher queries using both nodes and relationships?
+                        Can you transform the following text into Cypher statements using both nodes and relationships?
                         Each node and relation should have a single property "id",\s
                         and each node has an additional label named __Entity__
                         The id property values should have whitespace instead of _ or other special characters.
                                         
-                        Just returns the Cypher queries ; separated,
+                        Just returns an unique query non ; separated,
                         without the ``` wrapping.
                                         
                         ```
@@ -242,12 +445,13 @@ class Neo4jEmbeddingStoreIT {
         //          --> use CALL db.index.fulltext.queryNodes("entity", "Elizabeth~2 AND I~2") YIELD node, score
         //                  RETURN node.id, score
 
-        // TODO --> MAYBE ChatMemoryStore to store the FullTextIndexes
-        for (String query: generate.split(";")) {
-            session.executeWrite(tx -> tx.run(query));
-        }
 
-        System.out.println("textDocument = " + textDocument.text());
+        for (String query: generate.split(";")) {
+            session.executeWrite(tx -> {
+                tx.run(query).consume();
+                return null;
+            });
+        }
 
 
 

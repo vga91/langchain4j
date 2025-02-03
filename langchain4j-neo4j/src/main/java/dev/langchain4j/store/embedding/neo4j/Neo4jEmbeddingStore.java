@@ -21,13 +21,13 @@ import java.util.stream.Stream;
 
 import static dev.langchain4j.internal.Utils.*;
 import static dev.langchain4j.internal.ValidationUtils.*;
-import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.SessionConfig;
 
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.*;
+import static org.neo4j.cypherdsl.support.schema_name.SchemaNames.sanitize;
 
 /**
  * Represents a Vector index as an embedding store.
@@ -37,6 +37,7 @@ import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.*;
 public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
     private static final Logger log = LoggerFactory.getLogger(Neo4jEmbeddingStore.class);
+    public static final String FULL_TEXT_CONFIG_ERROR = "You have to populate both `fullTextIndex` and `fullTextQuery` configs";
 
     /* Neo4j Java Driver settings */
     private final Driver driver;
@@ -59,8 +60,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private final String databaseName;
     private final String retrievalQuery;
     private final Set<String> notMetaKeys;
-    
-    private final Map<String, String> fullTextSearch;
+
+    // private final Map<String, Object> fullTextSearch;
+    private final String fullTextIndexName;
+    //private final Map<String, Object> fullTextSearch;
+    private final String fullTextQuery;
+    private final String fullTextRetrievalQuery;
+    private final boolean fullTextAutocreate;
     // private final String question;
 
     /**
@@ -102,7 +108,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String databaseName,
             String retrievalQuery,
             long awaitIndexTimeout,
-            Map<String, String> fullTextSearch
+
+            String fullTextIndexName,
+    //private final Map<String, Object> fullTextSearch;
+            String fullTextQuery,
+            String fullTextRetrievalQuery,
+            boolean fullTextAutocreate
+            //Map<String, Object> fullTextSearch
             //String question
     ) {
         
@@ -123,7 +135,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
         this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
         this.awaitIndexTimeout = getOrDefault(awaitIndexTimeout, DEFAULT_AWAIT_INDEX_TIMEOUT);
-        this.fullTextSearch = fullTextSearch;
+        // this.fullTextSearch = fullTextSearch;
         //this.question = question;
 
         /* sanitize labels and property names, to prevent from Cypher Injections */
@@ -144,9 +156,14 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                 this.sanitizedIdProperty, this.sanitizedText, this.sanitizedEmbeddingProperty
         );
         this.retrievalQuery = getOrDefault(retrievalQuery, defaultRetrievalQuery);
-        
+
+
         this.notMetaKeys = new HashSet<>(Arrays.asList(this.idProperty, this.embeddingProperty, this.textProperty));
-        
+
+        this.fullTextAutocreate = fullTextAutocreate;
+        this.fullTextIndexName = fullTextIndexName;
+        this.fullTextQuery = fullTextQuery;
+        this.fullTextRetrievalQuery = getOrDefault(fullTextRetrievalQuery, this.retrievalQuery);
         /* auto-schema creation */
         createSchema();
     }
@@ -242,20 +259,23 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                     """;
             String s = query + retrievalQuery;
 
-            if (fullTextSearch != null) {
-                final String fullTextIndexName = fullTextSearch.get("indexName");
-                final String question = fullTextSearch.get("question");
-                final String retrievalQueryFullText = fullTextSearch.getOrDefault("retrievalQuery", retrievalQuery);
+            if (fullTextIndexName != null) {
+                //final String fullTextIndexName = (String) fullTextSearch.get("indexName");
+                if (fullTextQuery == null) {
+                    throw new RuntimeException(FULL_TEXT_CONFIG_ERROR);
+                }
+                //final String question = (String) fullTextSearch.get("question");
+                //final String retrievalQueryFullText = (String) fullTextSearch.getOrDefault("retrievalQuery", retrievalQuery);
                 s += """
-                   UNION
+                   \nUNION
                    CALL db.index.fulltext.queryNodes($fullTextIndexName, $question, {limit: $maxResults})
                    YIELD node, score
                    WHERE score >= $minScore
-                   """ + retrievalQueryFullText;
+                   """ + fullTextRetrievalQuery;
 
                 params.putAll(Map.of(
                         "fullTextIndexName", fullTextIndexName,
-                        "question", question
+                        "question", fullTextQuery
                 ));
             }
 
@@ -319,6 +339,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         if (!indexExists()) {
             createIndex();
         }
+        createFullTextIndex();
         createUniqueConstraint();
     }
 
@@ -361,6 +382,19 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
                 throw new RuntimeException(errMessage);
             }
             return true;
+        }
+    }
+
+    private void createFullTextIndex() {
+        if (!fullTextAutocreate) {
+            return;
+        }
+
+        try (var session = session()) {
+
+            final String query = "CREATE FULLTEXT INDEX %s IF NOT EXISTS FOR (n:%s) ON EACH [n.%s]"
+                    .formatted(this.fullTextIndexName, this.sanitizedLabel, this.sanitizedIdProperty);
+            session.run(query).consume();
         }
     }
 
