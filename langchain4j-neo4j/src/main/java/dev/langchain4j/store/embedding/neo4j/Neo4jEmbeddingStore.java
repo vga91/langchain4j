@@ -171,29 +171,85 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
     @Override
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
+        /*
+            parallel_query = (
+                "CYPHER runtime = parallel parallelRuntimeSupport=all "
+                if self._is_enterprise
+                else ""
+            )
+            base_index_query = parallel_query + (
+                f"MATCH (n:`{self.node_label}`) WHERE "
+                f"n.`{self.embedding_node_property}` IS NOT NULL AND "
+                f"size(n.`{self.embedding_node_property}`) = "
+                f"toInteger({self.embedding_dimension}) AND "
+            )
+            base_cosine_query = (
+                " WITH n as node, vector.similarity.cosine("
+                f"n.`{self.embedding_node_property}`, "
+                "$embedding) AS score ORDER BY score DESC LIMIT toInteger($k) "
+            )
+            filter_snippets, filter_params = construct_metadata_filter(filter)
+            index_query = base_index_query + filter_snippets + base_cosine_query
+         */
 
         var embeddingValue = Values.value(request.queryEmbedding().vector());
 
         try (var session = session()) {
-            // todo - prefilter
-            final Filter filter = request.filter().;
 
-            Map<String, Object> params = Map.of("indexName", indexName,
-                    "embeddingValue", embeddingValue,
-                    "minScore", request.minScore(),
-                    "maxResults", request.maxResults());
+            final Filter filter = request.filter();
+            if (filter == null) {
+                return getTextUsingVectorIndex(request, embeddingValue, session);
+            }
 
-            List<EmbeddingMatch<TextSegment>> matches = session
-                .run("""
-                        CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
-                        YIELD node, score
-                        WHERE score >= $minScore
-                        """ + retrievalQuery,
-                    params)
-                .list(item -> toEmbeddingMatch(this, item));
+            final AbstractMap.SimpleEntry<String, Map> entry = new Neo4jFilterMapper().map(filter);
+            final String s = """
+                    CYPHER runtime = parallel parallelRuntimeSupport=all
+                    MATCH (n:%1$s)
+                    WHERE n.%2$s IS NOT NULL AND size(n.%2$s) = toInteger(%3$s) AND %4$s
+                    WITH n, vector.similarity.cosine(n.%2$s, %5$s) AS score
+                    WHERE score >= $minScore
+                    WITH n AS node, score
+                    ORDER BY score DESC
+                    LIMIT $maxResults
+                    """.formatted(
+                            sanitizedLabel,
+                            embeddingProperty,
+                            dimension,
+                            entry.getKey(),
+                            embeddingValue
+                    );
+                    //+ retrievalQuery;
 
-            return new EmbeddingSearchResult<>(matches);
+            System.out.println("s = " + s);
+            System.out.println("entry.getValue() = " + entry.getValue());
+            final Map params = entry.getValue();
+            params.put("minScore", request.minScore());
+            params.put("maxResults", request.maxResults());
+            return getEmbeddingSearchResult(session, s, params);
         }
+    }
+
+    private EmbeddingSearchResult<TextSegment> getTextUsingVectorIndex(EmbeddingSearchRequest request, Value embeddingValue, Session session) {
+        Map<String, Object> params = Map.of("indexName", indexName,
+                "embeddingValue", embeddingValue,
+                "minScore", request.minScore(),
+                "maxResults", request.maxResults());
+
+        final String s = """
+                CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue)
+                YIELD node, score
+                WHERE score >= $minScore
+                """;
+        return getEmbeddingSearchResult(session, s, params);
+    }
+
+    private EmbeddingSearchResult<TextSegment> getEmbeddingSearchResult(Session session, String query, Map<String, Object> params) {
+        List<EmbeddingMatch<TextSegment>> matches = session
+            .run(query + retrievalQuery,
+                    params)
+            .list(item -> toEmbeddingMatch(this, item));
+
+        return new EmbeddingSearchResult<>(matches);
     }
 
     /*

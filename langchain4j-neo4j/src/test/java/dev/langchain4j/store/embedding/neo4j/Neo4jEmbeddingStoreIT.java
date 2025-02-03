@@ -13,6 +13,13 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
 import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
+import dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan;
+import dev.langchain4j.store.embedding.filter.comparison.IsIn;
+import dev.langchain4j.store.embedding.filter.comparison.IsLessThan;
+import dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo;
+import dev.langchain4j.store.embedding.filter.logical.And;
+import dev.langchain4j.store.embedding.filter.logical.Not;
+import dev.langchain4j.store.embedding.filter.logical.Or;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +63,7 @@ class Neo4jEmbeddingStoreIT {
     public static final String LABEL_TO_SANITIZE = "Label ` to \\ sanitize";
     
     @Container
-    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0"))
+    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.26.1"))
             .withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
@@ -135,30 +142,17 @@ class Neo4jEmbeddingStoreIT {
 
     @Test
     void should_add_embedding_with_id_and_retrieve_with_and_without_prefilter() {
-            /*
-    CREATE (comA:Organization {name: 'CompanyA'})-[:IN_CITY]->(:City {name: 'New York'})-[:IN_COUNTRY]->(:Country {name: 'USA'})
-    CREATE (comB:Organization {name: 'CompanyB'})-[:IN_CITY]->(:City {name: 'Toronto'})-[:IN_COUNTRY]->(:Country {name: 'Canada'})
-
-    CREATE (art1:Article {title: 'Article 1', date: date('2023-01-01'), sentiment: 0.3})-[:MENTIONS]->(comA)
-    CREATE (art2:Article {title: 'Article 2', date: date('2023-01-05'), sentiment: -0.2})-[:MENTIONS]->(comB)
-
-    CREATE (c1:Chunk {embedding: [0.1, 0.2, 0.3]})
-    CREATE (c2:Chunk {embedding: [0.4, 0.5, 0.6]})
-
-    CREATE (art1)-[:HAS_CHUNK]->(c1)
-    CREATE (art2)-[:HAS_CHUNK]->(c2)
-     */
         // TODO
         //  1.i 2 chunk li metto con embeddingStore
         //  2. gli altri con query normale
         //  3. opzione per filtrare
         //  4. opzione senza filtro ritorna comunque qualcosa, ma fa leva sull'indice
 
-        EmbeddingStore<TextSegment> embeddingStorePrefilter = Neo4jEmbeddingStore.builder()
-                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
-                .dimension(384)
-                .label("Chunk")
-                .build();
+//        EmbeddingStore<TextSegment> embeddingStorePrefilter = Neo4jEmbeddingStore.builder()
+//                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+//                .dimension(384)
+//                .label("Chunk")
+//                .build();
 
 //        IntStream.range(0, 10)
 //                .forEach(i -> {
@@ -168,35 +162,66 @@ class Neo4jEmbeddingStoreIT {
 
         //TextSegment segment1 = TextSegment.from(randomUUID());
         //TextSegment segment2 = TextSegment.from(randomUUID());
-        final List<Embedding> embeddings = embeddingModel.embedAll(
-                IntStream.range(0, 10).boxed()
-                        .map(i -> TextSegment.from(randomUUID()))
-                        .toList()
-        ).content();
 
-        embeddingStore.addAll(embeddings);
+        final List<TextSegment> segments = IntStream.range(0, 10).boxed()
+                .map(i -> {
+                    if (i == 0) {
+                        final Metadata metadata = new Metadata(Map.of("key1", "value1", "key2", 10, "key3", "3", "key4", "value4"));
+                        return TextSegment.from(randomUUID(), metadata);
+                    }
+                    return TextSegment.from(randomUUID());
+                })
+                .toList();
+
+
+        final List<Embedding> embeddings = embeddingModel.embedAll( segments )
+//                segments.stream()
+//                        .map(i -> {
+//                            if (i == 0) {
+//                                final Metadata metadata = new Metadata(Map.of("key1", "value1", "key2", 10, "key3", "3"));
+//                                return TextSegment.from(randomUUID(), metadata);
+//                            }
+//                            return TextSegment.from(randomUUID());
+//                        })
+//                        .toList()
+        .content();
+
+        embeddingStore.addAll(embeddings, segments);
 
         TextSegment segmentToSearch = TextSegment.from(randomUUID());
         Embedding embeddingToSearch = embeddingModel.embed(segmentToSearch.text()).content();
 
-        final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(embeddingToSearch, 5);
-        System.out.println("relevant = " + relevant);
-
         final EmbeddingSearchResult<TextSegment> search = embeddingStore.search(
                 new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0, null)
         );
-        System.out.println("search = " + search);
+        System.out.println("search = " + search.matches());
 
         // TODO ---> MAYBE FilterParser??
 
         final EmbeddingSearchResult<TextSegment> search2 = embeddingStore.search(
                 new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0,
-                        new IsEqualTo("ajeje", "brazorf")
+                        new And(
+                                new And(
+                                        new IsEqualTo("key1", "value1"),
+                                        new IsEqualTo("key2", "10")
+                                ),
+                                new Not(
+                                        new Or(
+                                                new IsIn("key3", asList("1", "2")),
+                                                new IsNotEqualTo("key4", "value4")
+                                        )
+                                )
+                        )
                 )
         );
-        System.out.println("search2 = " + search2);
+        final List<EmbeddingMatch<TextSegment>> matches = search2.matches();
+        assertThat(matches).hasSize(1);
 
-
+        final EmbeddingSearchResult<TextSegment> search23 = embeddingStore.search(
+                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0, null)
+        );
+        final List<EmbeddingMatch<TextSegment>> matches3 = search23.matches();
+        assertThat(matches3).hasSize(5);
     }
 
     /*
