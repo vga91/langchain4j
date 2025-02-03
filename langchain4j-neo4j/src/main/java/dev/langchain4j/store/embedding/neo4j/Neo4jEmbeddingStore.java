@@ -61,13 +61,10 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
     private final String retrievalQuery;
     private final Set<String> notMetaKeys;
 
-    // private final Map<String, Object> fullTextSearch;
     private final String fullTextIndexName;
-    //private final Map<String, Object> fullTextSearch;
     private final String fullTextQuery;
     private final String fullTextRetrievalQuery;
     private final boolean fullTextAutocreate;
-    // private final String question;
 
     /**
      * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
@@ -110,12 +107,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             long awaitIndexTimeout,
 
             String fullTextIndexName,
-    //private final Map<String, Object> fullTextSearch;
             String fullTextQuery,
             String fullTextRetrievalQuery,
             boolean fullTextAutocreate
-            //Map<String, Object> fullTextSearch
-            //String question
     ) {
         
         /* required configs */
@@ -129,14 +123,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         this.embeddingProperty = getOrDefault(embeddingProperty, DEFAULT_EMBEDDING_PROP);
         this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
         this.indexName = getOrDefault(indexName, DEFAULT_IDX_NAME);
-        // todo - add some configs:
-        //  -  
-        //  -
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
         this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
         this.awaitIndexTimeout = getOrDefault(awaitIndexTimeout, DEFAULT_AWAIT_INDEX_TIMEOUT);
-        // this.fullTextSearch = fullTextSearch;
-        //this.question = question;
 
         /* sanitize labels and property names, to prevent from Cypher Injections */
         this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
@@ -160,10 +149,12 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
         this.notMetaKeys = new HashSet<>(Arrays.asList(this.idProperty, this.embeddingProperty, this.textProperty));
 
+        /* optional full text index */
         this.fullTextAutocreate = fullTextAutocreate;
         this.fullTextIndexName = fullTextIndexName;
         this.fullTextQuery = fullTextQuery;
         this.fullTextRetrievalQuery = getOrDefault(fullTextRetrievalQuery, this.retrievalQuery);
+
         /* auto-schema creation */
         createSchema();
     }
@@ -201,51 +192,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
         var embeddingValue = Values.value(request.queryEmbedding().vector());
 
-        /*
-        write a union Cypher query where 
-        - first perform a vector similarity search 
-        - then a fulltext search. 
-        We then deduplicate the results and return the top k results.
-         */
-        
-        /*
-        ISSUE CASE:
-        CALL db.index.vector.queryNodes('pdf', $k, $question_embedding) ➥ YIELD node, score
-        WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
-        // Normalize scores
-        RETURN n.node AS node, (n.score / max) AS score
-        UNION
-        // keyword index
-        CALL db.index.fulltext.queryNodes('ftPdfChunk', $question, {limit: $k}) YIELD node, score WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
-        // Normalize scores
-        RETURN n.node AS node, (n.score / max) AS score
-         */
-        
-        // da mettere in createSchema
-            // -- CALL db.index.vector.createNodeIndex('pdf', '$label', '$embeddingProperty', 2, 'cosine')
-            // -- CREATE FULLTEXT INDEX ftPdfChunk FOR (n:Employee|Manager) ON EACH [n.name, n.team]
-        /*
-        langchain CASE:
-            CALL db.index.vector.queryNodes($indexName, $maxResults, $embeddingValue) 
-            YIELD node, score
-            WITH collect({node:node, score:score}) AS nodes, max(score) AS max UNWIND nodes AS n
-            // Normalize scores <-- TODO - UNION??
-            RETURN n.node AS node, (n.score / max) AS score // todo - retrievalQuery?
-            UNION
-            // keyword index
-            CALL db.index.fulltext.queryNodes($fullTextIndexName, $question, {limit: $maxResults}) YIELD node, score 
-            WITH collect({node:node, score:score}) AS nodes, max(score) AS max 
-            UNWIND nodes AS n
-            // Normalize scores
-            RETURN n.node AS node, (n.score / max) AS score // todo - retrievalQuery, uguale?
-         */
-        
-        // TODO - check apoc
-
         try (var session = session()) {
-            // todo - HERE??
-
-            // TODO - retrievalQuery, how to do it??
             Map<String, Object> params = new HashMap<>(Map.of("indexName", indexName,
                     "embeddingValue", embeddingValue,
                     "minScore", request.minScore(),
@@ -260,12 +207,9 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String s = query + retrievalQuery;
 
             if (fullTextIndexName != null) {
-                //final String fullTextIndexName = (String) fullTextSearch.get("indexName");
                 if (fullTextQuery == null) {
                     throw new RuntimeException(FULL_TEXT_CONFIG_ERROR);
                 }
-                //final String question = (String) fullTextSearch.get("question");
-                //final String retrievalQueryFullText = (String) fullTextSearch.getOrDefault("retrievalQuery", retrievalQuery);
                 s += """
                    \nUNION
                    CALL db.index.fulltext.queryNodes($fullTextIndexName, $question, {limit: $maxResults})

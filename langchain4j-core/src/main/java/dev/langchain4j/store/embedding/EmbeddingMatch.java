@@ -13,12 +13,6 @@ import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
  * @param <Embedded> The class of the object that has been embedded. Typically, it is {@link dev.langchain4j.data.segment.TextSegment}.
  */
 public class EmbeddingMatch<Embedded> {
-    
-    /*
-    [FEATURE] Support hybrid search with Neo4J
-    
-    
-     */
 
     private final Double score;
     private final String embeddingId;
