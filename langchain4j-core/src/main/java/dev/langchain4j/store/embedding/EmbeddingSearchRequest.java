@@ -20,8 +20,6 @@ public class EmbeddingSearchRequest {
     private final Embedding queryEmbedding;
     private final int maxResults;
     private final double minScore;
-
-    // TODO - FILTER!!!
     private final Filter filter;
 
     /**

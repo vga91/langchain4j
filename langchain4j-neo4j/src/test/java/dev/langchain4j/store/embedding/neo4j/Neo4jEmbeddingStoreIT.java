@@ -11,11 +11,8 @@ import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
-import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
-import dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan;
 import dev.langchain4j.store.embedding.filter.comparison.IsIn;
-import dev.langchain4j.store.embedding.filter.comparison.IsLessThan;
 import dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo;
 import dev.langchain4j.store.embedding.filter.logical.And;
 import dev.langchain4j.store.embedding.filter.logical.Not;
@@ -43,7 +40,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
-import java.util.stream.Collector;
 import java.util.stream.IntStream;
 
 import static dev.langchain4j.internal.Utils.randomUUID;
@@ -117,8 +113,6 @@ class Neo4jEmbeddingStoreIT {
                 iterator -> checkDefaultProps(embedding, match, iterator.next()));
     }
 
-
-
     @Test
     void should_add_embedding_with_id() {
 
@@ -142,31 +136,15 @@ class Neo4jEmbeddingStoreIT {
 
     @Test
     void should_add_embedding_with_id_and_retrieve_with_and_without_prefilter() {
-        // TODO
-        //  1.i 2 chunk li metto con embeddingStore
-        //  2. gli altri con query normale
-        //  3. opzione per filtrare
-        //  4. opzione senza filtro ritorna comunque qualcosa, ma fa leva sull'indice
-
-//        EmbeddingStore<TextSegment> embeddingStorePrefilter = Neo4jEmbeddingStore.builder()
-//                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
-//                .dimension(384)
-//                .label("Chunk")
-//                .build();
-
-//        IntStream.range(0, 10)
-//                .forEach(i -> {
-//                    final TextSegment segment = TextSegment.from(randomUUID());
-//                    embeddingModel.embed(segment.text()).content();
-//                });
-
-        //TextSegment segment1 = TextSegment.from(randomUUID());
-        //TextSegment segment2 = TextSegment.from(randomUUID());
 
         final List<TextSegment> segments = IntStream.range(0, 10).boxed()
                 .map(i -> {
                     if (i == 0) {
-                        final Metadata metadata = new Metadata(Map.of("key1", "value1", "key2", 10, "key3", "3", "key4", "value4"));
+                        final Map<String, Object> metas = Map.of("key1", "value1",
+                                "key2", 10,
+                                "key3", "3",
+                                "key4", "value4");
+                        final Metadata metadata = new Metadata(metas);
                         return TextSegment.from(randomUUID(), metadata);
                     }
                     return TextSegment.from(randomUUID());
@@ -174,62 +152,45 @@ class Neo4jEmbeddingStoreIT {
                 .toList();
 
 
-        final List<Embedding> embeddings = embeddingModel.embedAll( segments )
-//                segments.stream()
-//                        .map(i -> {
-//                            if (i == 0) {
-//                                final Metadata metadata = new Metadata(Map.of("key1", "value1", "key2", 10, "key3", "3"));
-//                                return TextSegment.from(randomUUID(), metadata);
-//                            }
-//                            return TextSegment.from(randomUUID());
-//                        })
-//                        .toList()
-        .content();
+        final List<Embedding> embeddings = embeddingModel.embedAll(segments)
+                .content();
 
         embeddingStore.addAll(embeddings, segments);
 
-        TextSegment segmentToSearch = TextSegment.from(randomUUID());
-        Embedding embeddingToSearch = embeddingModel.embed(segmentToSearch.text()).content();
-
-        final EmbeddingSearchResult<TextSegment> search = embeddingStore.search(
-                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0, null)
-        );
-        System.out.println("search = " + search.matches());
-
-        // TODO ---> MAYBE FilterParser??
-
-        final EmbeddingSearchResult<TextSegment> search2 = embeddingStore.search(
-                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0,
-                        new And(
-                                new And(
-                                        new IsEqualTo("key1", "value1"),
-                                        new IsEqualTo("key2", "10")
-                                ),
-                                new Not(
-                                        new Or(
-                                                new IsIn("key3", asList("1", "2")),
-                                                new IsNotEqualTo("key4", "value4")
-                                        )
-                                )
+        final And filter = new And(
+                new And(
+                        new IsEqualTo("key1", "value1"),
+                        new IsEqualTo("key2", "10")
+                ),
+                new Not(
+                        new Or(
+                                new IsIn("key3", asList("1", "2")),
+                                new IsNotEqualTo("key4", "value4")
                         )
                 )
         );
-        final List<EmbeddingMatch<TextSegment>> matches = search2.matches();
-        assertThat(matches).hasSize(1);
 
-        final EmbeddingSearchResult<TextSegment> search23 = embeddingStore.search(
-                new EmbeddingSearchRequest(embeddingToSearch, 5, 0.0, null)
-        );
-        final List<EmbeddingMatch<TextSegment>> matches3 = search23.matches();
-        assertThat(matches3).hasSize(5);
+        TextSegment segmentToSearch = TextSegment.from(randomUUID());
+        Embedding embeddingToSearch = embeddingModel.embed(segmentToSearch.text()).content();
+        final EmbeddingSearchRequest requestWithFilter = EmbeddingSearchRequest.builder()
+                .maxResults(5)
+                .minScore(0.0)
+                .filter(filter)
+                .queryEmbedding(embeddingToSearch)
+                .build();
+        final EmbeddingSearchResult<TextSegment> searchWithFilter = embeddingStore.search(requestWithFilter);
+        final List<EmbeddingMatch<TextSegment>> matchesWithFilter = searchWithFilter.matches();
+        assertThat(matchesWithFilter).hasSize(1);
+
+        final EmbeddingSearchRequest requestWithoutFilter = EmbeddingSearchRequest.builder()
+                .maxResults(5)
+                .minScore(0.0)
+                .queryEmbedding(embeddingToSearch)
+                .build();
+        final EmbeddingSearchResult<TextSegment> searchWithoutFilter = embeddingStore.search(requestWithoutFilter);
+        final List<EmbeddingMatch<TextSegment>> matchesWithoutFilter = searchWithoutFilter.matches();
+        assertThat(matchesWithoutFilter).hasSize(5);
     }
-
-    /*
-    -- https://neo4j.com/developer-blog/graph-metadata-filtering-vector-search-rag/
-    TODO
-        If all of the pre-filtering parameters are empty,
-        we can find the relevant documents using the existing vector index. Otherwise, we start preparing the base Cypher statement that will be used for the pre-filtered metadata approach.
-     */
 
     @Test
     void should_add_embedding_with_segment() {

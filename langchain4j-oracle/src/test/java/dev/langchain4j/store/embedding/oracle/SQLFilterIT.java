@@ -57,7 +57,6 @@ public class SQLFilterIT {
         List<String> ids = oracleEmbeddingStore.addAll(
                 Arrays.asList(embedding0, embedding1), Arrays.asList(textSegment0, textSegment1));
 
-        // TODO - check filter here
         List<EmbeddingMatch<TextSegment>> matches0 = oracleEmbeddingStore
                 .search(EmbeddingSearchRequest.builder()
                         .queryEmbedding(embedding0)
