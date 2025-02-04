@@ -7,8 +7,16 @@ import dev.langchain4j.model.embedding.onnx.allminilml6v2q.AllMiniLmL6V2Quantize
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
+import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
+import dev.langchain4j.store.embedding.filter.comparison.IsIn;
+import dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo;
+import dev.langchain4j.store.embedding.filter.logical.And;
+import dev.langchain4j.store.embedding.filter.logical.Not;
+import dev.langchain4j.store.embedding.filter.logical.Or;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +59,7 @@ class Neo4jEmbeddingStoreIT {
     public static final String LABEL_TO_SANITIZE = "Label ` to \\ sanitize";
     
     @Container
-    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0"))
+    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.26.1"))
             .withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
@@ -124,6 +132,64 @@ class Neo4jEmbeddingStoreIT {
 
         checkEntitiesCreated(relevant.size(), 
                 iterator -> checkDefaultProps(embedding, match, iterator.next()));
+    }
+
+    @Test
+    void should_add_embedding_with_id_and_retrieve_with_and_without_prefilter() {
+
+        final List<TextSegment> segments = IntStream.range(0, 10).boxed()
+                .map(i -> {
+                    if (i == 0) {
+                        final Map<String, Object> metas = Map.of("key1", "value1",
+                                "key2", 10,
+                                "key3", "3",
+                                "key4", "value4");
+                        final Metadata metadata = new Metadata(metas);
+                        return TextSegment.from(randomUUID(), metadata);
+                    }
+                    return TextSegment.from(randomUUID());
+                })
+                .toList();
+
+
+        final List<Embedding> embeddings = embeddingModel.embedAll(segments)
+                .content();
+
+        embeddingStore.addAll(embeddings, segments);
+
+        final And filter = new And(
+                new And(
+                        new IsEqualTo("key1", "value1"),
+                        new IsEqualTo("key2", "10")
+                ),
+                new Not(
+                        new Or(
+                                new IsIn("key3", asList("1", "2")),
+                                new IsNotEqualTo("key4", "value4")
+                        )
+                )
+        );
+
+        TextSegment segmentToSearch = TextSegment.from(randomUUID());
+        Embedding embeddingToSearch = embeddingModel.embed(segmentToSearch.text()).content();
+        final EmbeddingSearchRequest requestWithFilter = EmbeddingSearchRequest.builder()
+                .maxResults(5)
+                .minScore(0.0)
+                .filter(filter)
+                .queryEmbedding(embeddingToSearch)
+                .build();
+        final EmbeddingSearchResult<TextSegment> searchWithFilter = embeddingStore.search(requestWithFilter);
+        final List<EmbeddingMatch<TextSegment>> matchesWithFilter = searchWithFilter.matches();
+        assertThat(matchesWithFilter).hasSize(1);
+
+        final EmbeddingSearchRequest requestWithoutFilter = EmbeddingSearchRequest.builder()
+                .maxResults(5)
+                .minScore(0.0)
+                .queryEmbedding(embeddingToSearch)
+                .build();
+        final EmbeddingSearchResult<TextSegment> searchWithoutFilter = embeddingStore.search(requestWithoutFilter);
+        final List<EmbeddingMatch<TextSegment>> matchesWithoutFilter = searchWithoutFilter.matches();
+        assertThat(matchesWithoutFilter).hasSize(5);
     }
 
     @Test
