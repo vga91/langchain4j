@@ -64,13 +64,13 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
 
     public OpenAiChatModel(OpenAiChatModelBuilder builder) {
 
-        if ("demo".equals(builder.apiKey)) {
-            // TODO remove before releasing 1.0.0
-            throw new RuntimeException("""
-                    If you wish to continue using the 'demo' key, please specify the base URL explicitly:
-                    OpenAiChatModel.builder().baseUrl("http://langchain4j.dev/demo/openai/v1").apiKey("demo").build();
-                    """);
-        }
+//        if ("demo".equals(builder.apiKey)) {
+//            // TODO remove before releasing 1.0.0
+//            throw new RuntimeException("""
+//                    If you wish to continue using the 'demo' key, please specify the base URL explicitly:
+//                    OpenAiChatModel.builder().baseUrl("http://langchain4j.dev/demo/openai/v1").apiKey("demo").build();
+//                    """);
+//        }
 
         this.client = OpenAiClient.builder()
                 .httpClientBuilder(builder.httpClientBuilder)

@@ -2,6 +2,8 @@ package dev.langchain4j.store.graph.neo4j;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.transformer.Graph;
+import dev.langchain4j.transformer.GraphDocument;
 import dev.langchain4j.transformer.LLMGraphTransformer;
 import lombok.Builder;
 import lombok.Getter;
@@ -29,7 +31,7 @@ public class Neo4jGraph implements AutoCloseable {
 
 //    private StructuredSchema structuredSchema;
     
-    private static final String BASE_ENTITY_LABEL = "__Entity__";
+    public static final String BASE_ENTITY_LABEL = "__Entity__";
     
     private static final String NODE_PROPERTIES_QUERY = """
             CALL apoc.meta.data()
@@ -126,32 +128,25 @@ public class Neo4jGraph implements AutoCloseable {
      */
     
 
-    public void addGraphDocuments(List<LLMGraphTransformer.GraphDocument> graphDocuments, boolean includeSource, boolean baseEntityLabel) {
-        if (baseEntityLabel) { // Check if constraint already exists
-//            boolean constraintExists = structuredSchema.getMetadata()
-//                    .getOrDefault("constraint", Collections.emptyList())
-//                    .stream()
-//                    .anyMatch(el -> el.get("labelsOrTypes").equals(Collections.singletonList(BASE_ENTITY_LABEL))
-//                            && el.get("properties").equals(Collections.singletonList("id")));
-
-//            if (!constraintExists) {
-                // Create constraint
-                executeWrite("CREATE CONSTRAINT IF NOT EXISTS FOR (b:" + BASE_ENTITY_LABEL + ") REQUIRE b.id IS UNIQUE;");
-                refreshSchema(); // Refresh constraint information
-//            }
+    // TODO - utils
+    public void addGraphDocuments(List<GraphDocument> graphDocuments, boolean includeSource, boolean baseEntityLabel) {
+        if (baseEntityLabel) { // Check 
+            // Create constraint if not exists
+            executeWrite("CREATE CONSTRAINT IF NOT EXISTS FOR (b:" + BASE_ENTITY_LABEL + ") REQUIRE b.id IS UNIQUE;");
+            refreshSchema(); // Refresh constraint information
         }
 
         String nodeImportQuery = getNodeImportQuery(baseEntityLabel, includeSource);
         String relImportQuery = getRelImportQuery(baseEntityLabel);
 
-        for (LLMGraphTransformer.GraphDocument document : graphDocuments) {
+        for (GraphDocument document : graphDocuments) {
             if (!document.getSource().metadata().containsKey("id")) {
                 // TODO - CHECK THIS
                 document.getSource().metadata().put("id", generateMD5(document.getSource().text()));
             }
 
             // Remove backticks from node types
-            for (LLMGraphTransformer.Node node : document.getNodes()) {
+            for (GraphDocument.Node node : document.getNodes()) {
                 node.setType(removeBackticks(node.getType()));
             }
 
@@ -180,7 +175,7 @@ public class Neo4jGraph implements AutoCloseable {
         }
     }
     
-    
+    // todo - util class???
     private static Map<String, Object> toMap(Object object) {
         ObjectMapper m = new ObjectMapper();
         return m.convertValue(object, new TypeReference<>() {});

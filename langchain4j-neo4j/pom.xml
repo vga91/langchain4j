@@ -88,7 +88,7 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
+            <scope>compile</scope>
         </dependency>
 
         <dependency>
@@ -112,12 +112,6 @@
             <groupId>org.tinylog</groupId>
             <artifactId>slf4j-tinylog</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai</artifactId>
-            <version>1.0.0-alpha2-SNAPSHOT</version>
-            <scope>compile</scope>
         </dependency>
 
     </dependencies>
