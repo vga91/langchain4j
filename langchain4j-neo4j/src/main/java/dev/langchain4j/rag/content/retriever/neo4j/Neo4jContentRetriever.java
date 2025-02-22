@@ -61,6 +61,7 @@ public class Neo4jContentRetriever implements ContentRetriever {
         return response.stream().map(Content::from).toList();
     }
 
+    // TODO - riutilizzare questo?
     private String generateCypherQuery(String schema, String question) {
 
         Prompt cypherPrompt = promptTemplate.apply(Map.of("schema", schema, "question", question));
