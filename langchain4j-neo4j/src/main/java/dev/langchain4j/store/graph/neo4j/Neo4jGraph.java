@@ -2,6 +2,7 @@ package dev.langchain4j.store.graph.neo4j;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.document.Document;
 import dev.langchain4j.transformer.Graph;
 import dev.langchain4j.transformer.GraphDocument;
 import dev.langchain4j.transformer.LLMGraphTransformer;
@@ -139,28 +140,33 @@ public class Neo4jGraph implements AutoCloseable {
         String nodeImportQuery = getNodeImportQuery(baseEntityLabel, includeSource);
         String relImportQuery = getRelImportQuery(baseEntityLabel);
 
-        for (GraphDocument document : graphDocuments) {
-            if (!document.getSource().metadata().containsKey("id")) {
+        for (GraphDocument graphDoc : graphDocuments) {
+            final Document source = graphDoc.getSource();
+            if (!source.metadata().containsKey("id")) {
                 // TODO - CHECK THIS
-                document.getSource().metadata().put("id", generateMD5(document.getSource().text()));
+                source.metadata().put("id", generateMD5(source.text()));
             }
 
             // Remove backticks from node types
-            for (GraphDocument.Node node : document.getNodes()) {
+            for (GraphDocument.Node node : graphDoc.getNodes()) {
                 node.setType(removeBackticks(node.getType()));
             }
 
             // Import nodes
             Map<String, Object> nodeParams = new HashMap<>();
-            nodeParams.put("data", document.getNodes().stream()
+            nodeParams.put("data", graphDoc.getNodes().stream()
                     .map(Neo4jGraph::toMap)
                     .collect(Collectors.toList()));
 //            nodeParams.put("data", document.getNodes().stream().map(GraphNode::toMap).collect(Collectors.toList()));
-            nodeParams.put("document", document.getSource().metadata().toMap());
+            
+            // TODO - add document param only if includeSource=true
+            final Map<String, Object> metadata = source.metadata().toMap();
+            final Map<String, Object> document = Map.of("metadata", metadata, "text", source.text());
+            nodeParams.put("document", document);
             executeWrite(nodeImportQuery, nodeParams);
 
             // Import relationships
-            List<Map<String, Object>> relData = document.getRelationships().stream()
+            List<Map<String, Object>> relData = graphDoc.getRelationships().stream()
                     .map(rel -> Map.of(
                             "source", rel.getSourceNode().getId(),
                             "source_label", removeBackticks(rel.getSourceNode().getType()),
@@ -192,8 +198,15 @@ public class Neo4jGraph implements AutoCloseable {
                 )
  
          */
-        // String includeDocsQuery = includeSource ? "INCLUDE_DOCS_QUERY" : "";
-        String includeDocsQuery = "";
+        
+        String includeDocs = """
+                MERGE (d:Document {id:$document.metadata.id})
+                SET d.text = $document.text
+                SET d += $document.metadata
+                WITH d
+                """;
+         String includeDocsQuery = includeSource ? includeDocs : "";
+//        String includeDocsQuery = "";
         if (baseEntityLabel) {
             return includeDocsQuery +
                     "UNWIND $data AS row " +

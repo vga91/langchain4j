@@ -10,6 +10,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.store.graph.neo4j.Neo4jGraph;
+import org.jetbrains.annotations.NotNull;
 import org.junit.After;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -30,16 +31,18 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static dev.langchain4j.store.graph.neo4j.Neo4jGraph.BASE_ENTITY_LABEL;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
+// TODO - rimuovere da qui
 @Testcontainers
 class LLMGraphTransformerIT {
 
@@ -115,61 +118,10 @@ class LLMGraphTransformerIT {
 //        Assertions.assertNotEquals("Original Data", transformedGraph.getNodes().get(0).getData());
 //    }
 
-    @Test
-    void testAddGraphDocuments() {
-        Document doc2 = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-        Document doc3 = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key3", "value3"));
-        final List<Document> documents = List.of(doc2, doc3);
-        List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
 
-        graph.addGraphDocuments(graphDocs, false, false);
-        
-        // TODO - ASSERTIONS 
-        final List<Record> records = graph.executeRead("MATCH p=()-[]->() RETURN p");
-        assertThat(records).hasSize(2);
-        records.forEach(record -> {
-            final PathValue p = (PathValue) record.get("p");
-            final Path path = p.asPath();
-            assertThat(path).hasSize(1);
-            final Node start = path.start();
-            assertThat(start.labels()).hasSize(1);
-            assertThat(start.labels()).doesNotContain(BASE_ENTITY_LABEL);
-            final Node end = path.end();
-            assertThat(end.labels()).hasSize(1);
-            assertThat(end.labels()).doesNotContain(BASE_ENTITY_LABEL);
-            final List<Relationship> rels = Iterables.asList(path.relationships());
-            assertThat(rels).hasSize(1);
-        });
-    }
     
     
-    @Test
-    void testAddGraphDocumentsWithBaseEntityLabel() {
-        Document docCat = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-        Document docKeanu = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key33", "value3"));
-        final List<Document> documents = List.of(docCat, docKeanu);
-        
-        // TODO - maybe metadata stored here in GraphDocument?
-        List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
 
-        graph.addGraphDocuments(graphDocs, false, true);
-        
-        final List<Record> records = graph.executeRead("MATCH p=()-[]->() RETURN p");
-        assertThat(records).hasSize(2);
-        records.forEach(record -> {
-            final PathValue p = (PathValue) record.get("p");
-            final Path path = p.asPath();
-            assertThat(path).hasSize(1);
-            final Node start = path.start();
-            assertThat(start.labels()).hasSize(2);
-            assertThat(start.labels()).contains(BASE_ENTITY_LABEL);
-            final Node end = path.end();
-            assertThat(end.labels()).hasSize(2);
-            assertThat(end.labels()).contains(BASE_ENTITY_LABEL);
-            final List<Relationship> rels = Iterables.asList(path.relationships());
-            assertThat(rels).hasSize(1);
-        });
-    }
 
     @Test
     void testAddGraphDocumentsWithMissingModel() {
@@ -183,15 +135,109 @@ class LLMGraphTransformerIT {
 
     @Test
     void testAddGraphDocumentsWithCustomPrompt() {
-        final List<ChatMessage> prompt = List.of(new UserMessage("return just a null value"));
+        final List<ChatMessage> prompt = List.of(new UserMessage("just return a null value, don't add any explanation or extra text."));
         
         final LLMGraphTransformer build = LLMGraphTransformer.builder()
                 .model(model)
                 .prompt(prompt)
                 .build();
 
-        final List<GraphDocument> documents = build.convertToGraphDocuments(List.of(Document.from("foobar")));
+        Document doc3 = new DefaultDocument("Keanu Reeves acted in Matrix. Keanu was born in Beirut", Metadata.from("key3", "value3"));
+        final List<GraphDocument> documents = build.convertToGraphDocuments(List.of(doc3));
+        assertThat(documents).isEmpty();
+    }
+
+    @Test
+    void testAddGraphDocumentsWithCustomNodesAndRelationshipsSchema() {
+
+        Document docCat = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
+        Document docKeanu = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key33", "value3"));
+        Document docLino = new DefaultDocument("Lino Banfi acted in Vieni Avanti Cretino", Metadata.from("key33", "value3"));
+        Document docGoku = new DefaultDocument("Goku acted in Dragon Ball", Metadata.from("key33", "value3"));
+        Document docHajime = new DefaultDocument("Hajime Isayama wrote Attack On Titan. Levi acted in Attack On Titan", Metadata.from("key33", "value3"));
+
+        final List<Document> docs = List.of(docCat, docKeanu, docLino, docGoku, docHajime);
+        
+        String cat = "Sylvester the cat";
+        String keanu = "Keanu Reeves";
+        String lino = "Lino Banfi";
+        String goku = "Goku";
+        String hajime = "Hajime Isayama";
+        String levi = "Levi";
+        String table = "table";
+        String matrix = "Matrix";
+        String vac = "Vieni Avanti Cretino";
+        String db = "Dragon Ball";
+        String aot = "Attack On Titan";
+        
+        final LLMGraphTransformer build2 = LLMGraphTransformer.builder()
+                .model(model)
+                .build();
+        final List<GraphDocument> documents2 = build2.convertToGraphDocuments(docs);
+        System.out.println("documents2 = " + documents2);
+        final Stream<String> cat2 = Stream.of(cat, keanu, lino, goku, hajime, levi, table, matrix, vac, db, aot);
+        assertThat(documents2).hasSize(5);
+        extracted(documents2, cat2);
+
+        //assertThat(collect).isEqualTo(cat1);
+
+        final LLMGraphTransformer build = LLMGraphTransformer.builder()
+                .model(model)
+                .allowedNodes(List.of("Person"))
+                .allowedRelationships(List.of("Acted_in"))
+                .build();
+
+        final List<GraphDocument> documents = build.convertToGraphDocuments(docs);
         System.out.println("documents = " + documents);
+        assertThat(documents).hasSize(4);
+        final String[] strings = {keanu, lino, goku, levi, matrix, vac, db, aot};
+        extracted(documents, Stream.of(strings));
+        //assertThat(collect2).isEqualTo(cat12);
+
+        final LLMGraphTransformer build3 = LLMGraphTransformer.builder()
+                .model(model)
+                .allowedNodes(List.of("Person"))
+                .allowedRelationships(List.of("Writes", "Acted_in"))
+                .build();
+
+
+        final List<GraphDocument> documents3 = build3.convertToGraphDocuments(docs);
+        System.out.println("documents3 = " + documents3);
+        assertThat(documents).hasSize(4);
+        final String[] elements3 = {keanu, lino, goku, hajime, levi, matrix, vac, db, aot};
+
+        extracted(documents3, Stream.of(elements3));
+
+        //assertThat(collect2).containsExactly(keanu, lino, goku, hajime, levi, matrix, vac, db, aot);
+
+
+    }
+
+    private static void extracted(List<GraphDocument> documents3, Stream<String> expectedElements) {
+        final List<String> collect23 = getCollect(documents3);
+        final List<String> cat123 = expectedElements
+                .sorted()
+                .toList();
+        extracted(collect23, cat123);
+        
+        // TODO - relationships assertions?
+    }
+
+    // todo - rename
+    private static void extracted(List<String> collect, List<String> cat1) {
+        System.out.println("collect = " + collect);
+        assertThat(collect.size()).isEqualTo(cat1.size());
+        for (int i = 0; i < collect.size(); i++) {
+            assertThat(collect.get(i)).contains(cat1.get(i));
+        }
+    }
+
+    // todo - rename
+    private static List<String> getCollect(List<GraphDocument> documents2) {
+        return documents2.stream()
+                .flatMap(i -> i.getNodes().stream().map(GraphDocument.Node::getId))
+                .sorted()
+                .collect(Collectors.toList());
     }
 
 
@@ -204,6 +250,7 @@ class LLMGraphTransformerIT {
         final List<Document> documents = List.of(doc3);
         List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
 
+        // TODO - change assertions
         assertThat(graphDocs).hasSize(1);
         final GraphDocument graphDocument = graphDocs.get(0);
         final Set<GraphDocument.Edge> relationships = graphDocument.getRelationships();

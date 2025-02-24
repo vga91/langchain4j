@@ -198,7 +198,9 @@ public class LLMGraphTransformer {
         
         // TODO - DEPRECATED
         List<Map<String, String>> parsedJson = getJsonResult(messages);
-        if (parsedJson == null) return null;
+        if (parsedJson == null || parsedJson.isEmpty()) {
+            return null;
+        }
 
         for (Map<String, String> rel : parsedJson) {
             if (!rel.containsKey("head") || !rel.containsKey("tail") || !rel.containsKey("relation")) {
@@ -214,6 +216,10 @@ public class LLMGraphTransformer {
             final String relation = rel.get("relation");
             final Edge edge = new Edge(sourceNode, targetNode, relation);
             relationships.add(edge);
+        }
+        
+        if (nodesSet.isEmpty()) {
+            return null;
         }
 
         return new GraphDocument(nodesSet, relationships, document);
