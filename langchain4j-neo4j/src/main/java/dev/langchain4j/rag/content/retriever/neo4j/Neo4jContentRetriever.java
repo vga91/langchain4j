@@ -66,6 +66,11 @@ public class Neo4jContentRetriever implements ContentRetriever {
 
         Prompt cypherPrompt = promptTemplate.apply(Map.of("schema", schema, "question", question));
         String cypherQuery = chatLanguageModel.generate(cypherPrompt.text());
+        return getString(cypherQuery);
+    }
+
+    // TODO - put in Neo4jUtils?
+    public static String getString(String cypherQuery) {
         Matcher matcher = BACKTICKS_PATTERN.matcher(cypherQuery);
         if (matcher.find()) {
             return matcher.group(1);

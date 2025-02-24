@@ -40,6 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 public class Neo4jGraphTransformer {
 
+    public static final String SYLVESTER_THE_CAT_IS_ON_THE_TABLE = "Sylvester the cat is on the table";
+    public static final String KEANU_REEVES_ACTED_IN_MATRIX = "Keanu Reeves acted in Matrix";
     private static LLMGraphTransformer graphTransformer;
     private static List<GraphDocument> graphDocs;
     private static Neo4jGraph graph;
@@ -74,10 +76,10 @@ public class Neo4jGraphTransformer {
                 .build();
         
         
-        Document docCat = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-        Document docKeanu = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key33", "value3"));
+        Document docCat = new DefaultDocument(SYLVESTER_THE_CAT_IS_ON_THE_TABLE, Metadata.from("key2", "value2"));
+        Document docKeanu = new DefaultDocument(KEANU_REEVES_ACTED_IN_MATRIX, Metadata.from("key33", "value3"));
         final List<Document> documents = List.of(docCat, docKeanu);
-        // TODO -
+        // TODO - retry util??
         graphDocs = graphTransformer.convertToGraphDocuments(documents);
         assertThat(graphDocs.size()).isEqualTo(2);
     }
@@ -194,12 +196,21 @@ public class Neo4jGraphTransformer {
     }
 
     private static void extractedDocument(Node start) {
-        assertThat(start.asMap()).containsKey("id");
-        assertThat(start.asMap()).containsKey("text");
-        assertThat(start.asMap()).containsAnyOf(
-                new AbstractMap.SimpleEntry("key2", "value2"),
-                new AbstractMap.SimpleEntry("key33", "value3")
-        );
+        final Map<String, Object> map = start.asMap();
+        assertThat(map).containsKey("id");
+        final Object text = map.get("text");
+        if (text.equals(SYLVESTER_THE_CAT_IS_ON_THE_TABLE)) {
+            assertThat(map.get("key2")).isEqualTo("value2");
+        } else if (text.equals(KEANU_REEVES_ACTED_IN_MATRIX)){
+            assertThat(map.get("key33")).isEqualTo("value3");
+        } else {
+            throw new RuntimeException("TODO");
+        }
+//        assertThat(map).containsKey("text");
+//        assertThat(map).containsAnyOf(
+//                new AbstractMap.SimpleEntry("key2", "value2"),
+//                new AbstractMap.SimpleEntry("key33", "value3")
+//        );
     }
 
     private static void extracted(Node start) {

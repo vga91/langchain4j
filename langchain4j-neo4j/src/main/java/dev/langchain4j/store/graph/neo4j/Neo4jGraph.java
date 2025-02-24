@@ -6,6 +6,7 @@ import dev.langchain4j.data.document.Document;
 import dev.langchain4j.transformer.Graph;
 import dev.langchain4j.transformer.GraphDocument;
 import dev.langchain4j.transformer.LLMGraphTransformer;
+import dev.langchain4j.transformer.LLMGraphTransformerUtils;
 import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.Driver;
@@ -24,8 +25,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
-import static dev.langchain4j.transformer.LLMGraphTransformer.generateMD5;
-import static dev.langchain4j.transformer.LLMGraphTransformer.removeBackticks;
+import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
+import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
 
 // TODO ... MAYBE USE THIS!!!
 public class Neo4jGraph implements AutoCloseable {
@@ -155,7 +156,7 @@ public class Neo4jGraph implements AutoCloseable {
             // Import nodes
             Map<String, Object> nodeParams = new HashMap<>();
             nodeParams.put("data", graphDoc.getNodes().stream()
-                    .map(Neo4jGraph::toMap)
+                    .map(LLMGraphTransformerUtils::toMap)
                     .collect(Collectors.toList()));
 //            nodeParams.put("data", document.getNodes().stream().map(GraphNode::toMap).collect(Collectors.toList()));
             
@@ -180,32 +181,11 @@ public class Neo4jGraph implements AutoCloseable {
             executeWrite(relImportQuery, Map.of("data", relData));
         }
     }
-    
-    // todo - util class???
-    private static Map<String, Object> toMap(Object object) {
-        ObjectMapper m = new ObjectMapper();
-        return m.convertValue(object, new TypeReference<>() {});
-    }
+
 
     private String getNodeImportQuery(boolean baseEntityLabel, boolean includeSource) {
-        /*
-           TODO 
-               include_docs_query = (
-                "MERGE (d:Document {id:$document.metadata.id}) "
-                "SET d.text = $document.page_content "
-                "SET d += $document.metadata "
-                "WITH d "
-                )
- 
-         */
-        
-        String includeDocs = """
-                MERGE (d:Document {id:$document.metadata.id})
-                SET d.text = $document.text
-                SET d += $document.metadata
-                WITH d
-                """;
-         String includeDocsQuery = includeSource ? includeDocs : "";
+
+        String includeDocsQuery = getIncludeDocsQuery(includeSource);
 //        String includeDocsQuery = "";
         if (baseEntityLabel) {
             return includeDocsQuery +
@@ -225,6 +205,18 @@ public class Neo4jGraph implements AutoCloseable {
                     (includeSource ? "MERGE (d)-[:MENTIONS]->(node) " : "") +
                     "RETURN distinct 'done' AS result";
         }
+    }
+
+    private static String getIncludeDocsQuery(boolean includeSource) {
+        if (!includeSource) {
+            return "";
+        }
+        return """
+                MERGE (d:Document {id:$document.metadata.id})
+                SET d.text = $document.text
+                SET d += $document.metadata
+                WITH d
+                """;
     }
 
     private String getRelImportQuery(boolean baseEntityLabel) {
