@@ -27,11 +27,12 @@ import java.util.stream.Collectors;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_DATABASE_NAME;
-import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
+//import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.sanitizeOrThrows;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
 
+@Getter
 public abstract class BaseNeo4jBuilder {
     // TODO - default label as abstract method
     
@@ -57,13 +58,13 @@ public abstract class BaseNeo4jBuilder {
      * starting from uri, user and password
      */
     // todo - the name is strange, ..BuilderBuilder
-    public static class BaseNeo4jBuilderBuilder {
-        public BaseNeo4jBuilderBuilder withBasicAuth(String uri, String user, String password) {
-            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
-        }
-    }
+//    public static class BaseNeo4jBuilderBuilder {
+//        public BaseNeo4jBuilderBuilder withBasicAuth(String uri, String user, String password) {
+//            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
+//        }
+//    }
     
-    @Builder
+//    @Builder
     protected BaseNeo4jBuilder(SessionConfig config, String databaseName, Driver driver, String label, String idProperty, String textProperty) {
         /* required configs */
         this.driver = ensureNotNull(driver, "driver");
@@ -72,7 +73,7 @@ public abstract class BaseNeo4jBuilder {
         /* optional configs */
         this.databaseName = getOrDefault(databaseName, DEFAULT_DATABASE_NAME);
         this.config = getOrDefault(config, SessionConfig.forDatabase(this.databaseName));
-        this.label = getOrDefault(label, DEFAULT_LABEL);
+        this.label = getOrDefault(label, getDefaultLabel());
         this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
         this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
 
@@ -82,7 +83,7 @@ public abstract class BaseNeo4jBuilder {
         this.sanitizedTextProperty = sanitizeOrThrows(this.textProperty, "textProperty");
     }
     
-    
+    protected abstract String getDefaultLabel();
 
     protected Session session() {
         return this.driver.session(this.config);

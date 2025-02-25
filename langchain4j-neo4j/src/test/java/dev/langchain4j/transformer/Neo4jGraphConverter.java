@@ -29,6 +29,8 @@ import java.util.Map;
 
 import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
+import static dev.langchain4j.store.graph.neo4j.BaseNeo4jBuilder.DEFAULT_ID_PROP;
+import static dev.langchain4j.store.graph.neo4j.BaseNeo4jBuilder.DEFAULT_TEXT_PROP;
 import static dev.langchain4j.store.graph.neo4j.Neo4jGraph.BASE_ENTITY_LABEL;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -93,6 +95,7 @@ public class Neo4jGraphConverter {
     }
     
     // TODO - tests
+    // TODO - tests with other configs, textProperty, label...
 
     @Test
     void testAddGraphDocuments() {
@@ -108,14 +111,21 @@ public class Neo4jGraphConverter {
             final Path path = p.asPath();
             assertThat(path).hasSize(1);
             final Node start = path.start();
-            assertNodeWithoutBaseEntityLabel(start, START_NODE_REGEX);
+            assertNodeWithoutBaseEntityLabel(start);
+            assertNodeProps(start, START_NODE_REGEX, DEFAULT_ID_PROP);
             final Node end = path.end();
-            assertNodeWithoutBaseEntityLabel(end, END_NODE_REGEX);
+            assertNodeWithoutBaseEntityLabel(end);
+            assertNodeProps(end, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(1);
         });
 
         // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
+    }
+
+    @Test
+    void testAddGraphDocumentsWithCustomIdTextAndLabel() {
+        // todo
     }
 
     @Test
@@ -131,9 +141,11 @@ public class Neo4jGraphConverter {
             final Path path = p.asPath();
             assertThat(path).hasSize(1);
             final Node start = path.start();
-            assertNodeWithBaseEntityLabel(start, START_NODE_REGEX);
+            assertNodeWithBaseEntityLabel(start);
+            assertNodeProps(start, START_NODE_REGEX, DEFAULT_ID_PROP);
             final Node end = path.end();
-            assertNodeWithBaseEntityLabel(end, END_NODE_REGEX);
+            assertNodeWithBaseEntityLabel(end);
+            assertNodeProps(end, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(1);
         });
@@ -154,21 +166,28 @@ public class Neo4jGraphConverter {
             final Path path = p.asPath();
             assertThat(path).hasSize(2);
             final Iterator<Node> iterator = path.nodes().iterator();
-            Node start = iterator.next();
-            assertThat(start.labels()).hasSize(1);
-            extractedDocument(start);
+            Node node = iterator.next();
+            assertThat(node.labels()).hasSize(1);
+            extractedDocument(node, DEFAULT_ID_PROP, DEFAULT_TEXT_PROP);
 
-            start = iterator.next();
-            assertNodeWithBaseEntityLabel(start, START_NODE_REGEX);
+            node = iterator.next();
+            assertNodeWithBaseEntityLabel(node);            
+            assertNodeProps(node, START_NODE_REGEX, DEFAULT_ID_PROP);
 
-            start = iterator.next();
-            assertNodeWithBaseEntityLabel(start, END_NODE_REGEX);
+            node = iterator.next();
+            assertNodeWithBaseEntityLabel(node);
+            assertNodeProps(node, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(2);
             assertThat(rels.get(1).type()).isNotEqualTo("MENTIONS");
         });
         
         // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
+    }
+
+    @Test
+    void testAddGraphDocumentsWithBaseEntityLabelIncludeSourceAndCustomIdTextAndLabel() {
+        // todo   
     }
 
     @Test
@@ -184,15 +203,17 @@ public class Neo4jGraphConverter {
             final Path path = p.asPath();
             assertThat(path).hasSize(2);
             final Iterator<Node> iterator = path.nodes().iterator();
-            Node start = iterator.next();
-            assertThat(start.labels()).hasSize(1);
-            extractedDocument(start);
+            Node node = iterator.next();
+            assertThat(node.labels()).hasSize(1);
+            extractedDocument(node, DEFAULT_ID_PROP, DEFAULT_TEXT_PROP);
 
-            start = iterator.next();
-            assertNodeWithoutBaseEntityLabel(start, START_NODE_REGEX);
+            node = iterator.next();
+            assertNodeWithoutBaseEntityLabel(node);
+            assertNodeProps(node, START_NODE_REGEX, DEFAULT_ID_PROP);
 
-            start = iterator.next();
-            assertNodeWithoutBaseEntityLabel(start, END_NODE_REGEX);
+            node = iterator.next();
+            assertNodeWithoutBaseEntityLabel(node);
+            assertNodeProps(node, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(2);
             assertThat(rels.get(1).type()).isNotEqualTo("MENTIONS");
@@ -201,30 +222,29 @@ public class Neo4jGraphConverter {
         // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
     }
 
-    private static void assertNodeWithoutBaseEntityLabel(Node start, String propRegex) {
+    private static void assertNodeWithoutBaseEntityLabel(Node start) {
         final Iterable<String> labels = start.labels();
         assertThat(labels).hasSize(1);
         assertThat(labels).doesNotContain(BASE_ENTITY_LABEL);
-        assertNodeProps(start, propRegex);
+        
     }
 
-    private static void assertNodeWithBaseEntityLabel(Node start, String propRegex) {
+    private static void assertNodeWithBaseEntityLabel(Node start) {
         final Iterable<String> labels = start.labels();
         assertThat(labels).hasSize(2);
         assertThat(labels).contains(BASE_ENTITY_LABEL);
-        assertNodeProps(start, propRegex);
     }
 
-    private static void assertNodeProps(Node start, String propRegex) {
+    private static void assertNodeProps(Node start, String propRegex, String idProp) {
         final Map<String, Object> map = start.asMap();
         assertThat(map).hasSize(1);
-        assertThat((String) map.get("id")).containsPattern(propRegex);
+        assertThat((String) map.get(idProp)).containsPattern(propRegex);
     }
 
-    private static void extractedDocument(Node start) {
+    private static void extractedDocument(Node start, String idProp, String textProp) {
         final Map<String, Object> map = start.asMap();
-        assertThat(map).containsKey("id");
-        final Object text = map.get("text");
+        assertThat(map).containsKey(idProp);
+        final Object text = map.get(textProp);
         if (text.equals(CAT_ON_THE_TABLE)) {
             assertThat(map.get("key2")).isEqualTo("value2");
         } else if (text.equals(KEANU_REEVES_ACTED)){

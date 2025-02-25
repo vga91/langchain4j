@@ -1,11 +1,14 @@
 package dev.langchain4j.store.graph.neo4j;
 
 import dev.langchain4j.data.document.Document;
+import dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingStore;
 import dev.langchain4j.transformer.GraphDocument;
 import dev.langchain4j.transformer.LLMGraphTransformerUtils;
 import lombok.Builder;
 import lombok.Getter;
+import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Query;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
@@ -22,12 +25,30 @@ import java.util.stream.Collectors;
 
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
+//import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.sanitizeOrThrows;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
 
 public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
+
+
+    @Override
+    protected String getDefaultLabel() {
+        return BASE_ENTITY_LABEL;
+    }
+
+    /**
+     * Creates an instance of Neo4jGraph defining a {@link Driver}
+     * starting from uri, user and password
+     */
+    // TODO - test with it
+    public static class Neo4jGraphBuilder {
+        public Neo4jGraphBuilder withBasicAuth(String uri, String user, String password) {
+            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
+        }
+    }
     
     // TODO - configurable
     public static final String BASE_ENTITY_LABEL = "__Entity__";
@@ -57,8 +78,8 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             """;
     
     /* default configs */
-    public static final String DEFAULT_ID_PROP = "id";
-    public static final String DEFAULT_TEXT_PROP = "text";
+//    public static final String DEFAULT_ID_PROP = "id";
+//    public static final String DEFAULT_TEXT_PROP = "text";
     
 //    private final Driver driver;
 //    private final String idProperty;
@@ -223,7 +244,7 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         if (baseEntityLabel) {
             return includeDocsQuery +
                     "UNWIND $data AS row " +
-                    "MERGE (source:`" + BASE_ENTITY_LABEL + "` {id: row.id}) " +
+                    "MERGE (source:`" + sanitizedLabel + "` {`%1$s`: row.`%1$s`}) ".formatted(sanitizedIdProperty) +
                     "SET source += {} " +
 //                    "SET source += row.properties " +
                     (includeSource ? "MERGE (d)-[:MENTIONS]->(source) " : "") +
@@ -233,23 +254,23 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         } else {
             return includeDocsQuery +
                     "UNWIND $data AS row " +
-                    "CALL apoc.merge.node([row.type], {id: row.id}, {}, {}) YIELD node " +
+                    "CALL apoc.merge.node([row.type], {`%1$s`: row.`%1$s`}, {}, {}) YIELD node ".formatted(sanitizedIdProperty) +
 //                    "CALL apoc.merge.node([row.type], {id: row.id}, row.properties, {}) YIELD node " +
                     (includeSource ? "MERGE (d)-[:MENTIONS]->(node) " : "") +
                     "RETURN distinct 'done' AS result";
         }
     }
 
-    private static String getIncludeDocsQuery(boolean includeSource) {
+    private String getIncludeDocsQuery(boolean includeSource) {
         if (!includeSource) {
             return "";
         }
         return """
                 MERGE (d:Document {id: $document.metadata.id})
-                SET d.text = $document.text
+                SET d.`%1$s` = $document.text
                 SET d += $document.metadata
                 WITH d
-                """;
+                """.formatted(sanitizedTextProperty);
     }
 
     private String getRelImportQuery(boolean baseEntityLabel) {
