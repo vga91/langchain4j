@@ -39,10 +39,6 @@ public class Neo4jEmbeddingStore extends BaseNeo4jBuilder implements EmbeddingSt
 
     private static final Logger log = LoggerFactory.getLogger(Neo4jEmbeddingStore.class);
 
-    /* Neo4j Java Driver settings */
-//    private final Driver driver;
-//    private final SessionConfig config;
-
     /* Neo4j schema field settings */
     private final int dimension;
     private final long awaitIndexTimeout;
@@ -50,23 +46,10 @@ public class Neo4jEmbeddingStore extends BaseNeo4jBuilder implements EmbeddingSt
     private final String indexName;
     private final String metadataPrefix;
     private final String embeddingProperty;
-//    private final String idProperty;
     private final String sanitizedEmbeddingProperty;
-//    private final String sanitizedIdProperty;
-//    private final String sanitizedText;
-//    private final String label;
-//    private final String sanitizedLabel;
-//    private final String textProperty;
-//    private final String databaseName;
     private final String retrievalQuery;
     private final Set<String> notMetaKeys;
-
-    @Override
-    protected String getDefaultLabel() {
-        return DEFAULT_LABEL;
-    }
-
-    // TODO - create a similar one in Neo4jGraph???
+    
     /**
      * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver} 
      * starting from uri, user and password
@@ -109,26 +92,16 @@ public class Neo4jEmbeddingStore extends BaseNeo4jBuilder implements EmbeddingSt
         super(config, databaseName, driver, label, idProperty, textProperty);
 
         /* required configs */
-//        this.driver = ensureNotNull(driver, "driver");
-//        this.driver.verifyConnectivity();
         this.dimension = ensureBetween(dimension, 0, 4096, "dimension");
 
         /* optional configs */
-//        this.databaseName = getOrDefault(databaseName, DEFAULT_DATABASE_NAME);
-//        this.config = getOrDefault(config, SessionConfig.forDatabase(this.databaseName));
-//        this.label = getOrDefault(label, DEFAULT_LABEL);
         this.embeddingProperty = getOrDefault(embeddingProperty, DEFAULT_EMBEDDING_PROP);
-//        this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
         this.indexName = getOrDefault(indexName, DEFAULT_IDX_NAME);
         this.metadataPrefix = getOrDefault(metadataPrefix, "");
-//        this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
         this.awaitIndexTimeout = getOrDefault(awaitIndexTimeout, DEFAULT_AWAIT_INDEX_TIMEOUT);
 
         /* sanitize labels and property names, to prevent from Cypher Injections */
-//        this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
         this.sanitizedEmbeddingProperty = sanitizeOrThrows(this.embeddingProperty, "embeddingProperty");
-//        this.sanitizedIdProperty = sanitizeOrThrows(this.idProperty, "idProperty");
-//        this.sanitizedText = sanitizeOrThrows(this.textProperty, "textProperty");
 
         /* retrieval query: must necessarily return the following column:
             `metadata`,
@@ -147,6 +120,11 @@ public class Neo4jEmbeddingStore extends BaseNeo4jBuilder implements EmbeddingSt
         
         /* auto-schema creation */
         createSchema();
+    }
+
+    @Override
+    protected String getDefaultLabel() {
+        return DEFAULT_LABEL;
     }
 
     /*

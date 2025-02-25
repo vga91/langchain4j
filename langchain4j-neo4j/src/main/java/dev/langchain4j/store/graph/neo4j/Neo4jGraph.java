@@ -22,21 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static dev.langchain4j.internal.Utils.getOrDefault;
-import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
-//import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
 
 public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
-
-
-    @Override
-    protected String getDefaultLabel() {
-        return DEFAULT_ENTITY_LABEL;
-    }
-
-    // TODO - configurable
 
     public static final String DEFAULT_ENTITY_LABEL = "__Entity__";
     private static final String NODE_PROPERTIES_QUERY = """
@@ -70,16 +59,12 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
      * Creates an instance of Neo4jGraph defining a {@link Driver}
      * starting from uri, user and password
      */
-    // TODO - test with it
     public static class Neo4jGraphBuilder {
         public Neo4jGraphBuilder withBasicAuth(String uri, String user, String password) {
             return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
         }
     }
     
-    // TODO - add withBasicAuth like Neo4jEmbeddingStore ????
-    //      TODO - base Class??? or util???
-
     /**
      * Creates an instance of Neo4jGraph
      * 
@@ -102,6 +87,11 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             }
             throw e;
         }
+    }
+    
+    @Override
+    protected String getDefaultLabel() {
+        return DEFAULT_ENTITY_LABEL;
     }
 
     public ResultSummary executeWrite(String queryString) {
@@ -143,154 +133,10 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
                 "The relationships are the following:\n" +
                 String.join("\n", relationships);
     }
-    
-    /*
-        TODO - MAYBE THIS
-            self.structured_schema = {
-            "node_props": {el["labels"]: el["properties"] for el in node_properties},
-            "rel_props": {el["type"]: el["properties"] for el in rel_properties},
-            "relationships": relationships,
-            "metadata": {"constraint": constraint, "index": index},
-        }
-     */
-    
-    
-    // TODO - SANITIZE LABEL AND PROPS???
-    
-    /*
-    TODO:
-        * @param idProperty: the optional id property name (default: "id")
-        * @param textProperty: the optional textProperty property name (default: "text") 
-     */
 
-    // TODO - utils
     public void addGraphDocuments(List<GraphDocument> graphDocuments, boolean includeSource, boolean baseEntityLabel) {
-        if (baseEntityLabel) { // Check 
-            // Create constraint if not exists
-            executeWrite(
-                    "CREATE CONSTRAINT IF NOT EXISTS FOR (b:%s) REQUIRE b.%s IS UNIQUE;"
-                            .formatted(sanitizedLabel, sanitizedIdProperty)
-            );
-            refreshSchema(); // Refresh constraint information
-        }
         
-
-        for (GraphDocument graphDoc : graphDocuments) {
-            final Document source = graphDoc.getSource();
-            if (!source.metadata().containsKey(idProperty)) {
-                // TODO - CHECK THIS
-                source.metadata().put(idProperty, generateMD5(source.text()));
-            }
-
-            // Remove backticks from node types
-//            for (GraphDocument.Node node : graphDoc.getNodes()) {
-//                node.setType(removeBackticks(node.getType()));
-//            }
-
-            // Import nodes
-            Map<String, Object> nodeParams = new HashMap<>();
-            nodeParams.put("data", graphDoc.getNodes().stream()
-                    .map(LLMGraphTransformerUtils::toMap)
-                    .collect(Collectors.toList()));
-//            nodeParams.put("data", document.getNodes().stream().map(GraphNode::toMap).collect(Collectors.toList()));
-            
-            // TODO - add document param only if includeSource=true
-            final Map<String, Object> metadata = source.metadata().toMap();
-            final Map<String, Object> document = Map.of("metadata", metadata, "text", source.text());
-            nodeParams.put("document", document);
-
-            String nodeImportQuery = getNodeImportQuery(baseEntityLabel, includeSource);
-            executeWrite(nodeImportQuery, nodeParams);
-
-            // Import relationships
-            List<Map<String, String>> relData = graphDoc.getRelationships().stream()
-                    .map(rel -> Map.of(
-                            "source", rel.getSourceNode().getId(),
-                            "source_label", removeBackticks(rel.getSourceNode().getType()),
-                            "target", rel.getTargetNode().getId(),
-                            "target_label", removeBackticks(rel.getTargetNode().getType()),
-                            "type", removeBackticks(rel.getType().replace(" ", "_").toUpperCase())
-                    )).toList();
-
-            String relImportQuery = getRelImportQuery(baseEntityLabel);
-            executeWrite(relImportQuery, Map.of("data", relData));
-        }
-    }
-
-
-    private String getNodeImportQuery(boolean baseEntityLabel, boolean includeSource) {
-
-        String includeDocsQuery = getIncludeDocsQuery(includeSource);
-        if (baseEntityLabel) {
-            return includeDocsQuery +
-                    "UNWIND $data AS row " +
-                    "MERGE (source:%1$s {%2$s: row.id}) ".formatted(sanitizedLabel, sanitizedIdProperty) +
-//                    "SET source += {} " +
-//                    "SET source += row.properties " +
-                    (includeSource ? "MERGE (d)-[:MENTIONS]->(source) " : "") +
-                    "WITH source, row " +
-                    "SET source:$(row.type) " +
-                    // "CALL apoc.create.addLabels(source, [row.type]) YIELD node " +
-                    "RETURN distinct 'done' AS result";
-        } else {
-            return includeDocsQuery +
-                    "UNWIND $data AS row " +
-                    "MERGE (node:$(row.type) {%1$s: row.id}) ".formatted(sanitizedIdProperty) +
-//                    "CALL apoc.merge.node([row.type], {%1$s: row.%1$s}, {}, {}) YIELD node ".formatted(sanitizedIdProperty) +
-//                    "CALL apoc.merge.node([row.type], {id: row.id}, row.properties, {}) YIELD node " +
-                    (includeSource ? "MERGE (d)-[:MENTIONS]->(node) " : "") +
-                    "RETURN distinct 'done' AS result";
-        }
-    }
-
-    private String getIncludeDocsQuery(boolean includeSource) {
-        if (!includeSource) {
-            return "";
-        }
-        return """
-                MERGE (d:Document {id: $document.metadata.id})
-                SET d.%1$s = $document.text
-                SET d += $document.metadata
-                WITH d
-                """.formatted(sanitizedTextProperty);
-    }
-
-    private String getRelImportQuery(boolean baseEntityLabel) {
-        if (baseEntityLabel) {
-            return """
-                UNWIND $data AS row
-                MERGE (source:%1$s {%2$s: row.source})
-                MERGE (target:%1$s {%2$s: row.target})
-                WITH source, target, row
-                MERGE (source)-[rel:$(row.type)]->(target)
-                // CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
-                RETURN distinct 'done'
-                """.formatted(sanitizedLabel, sanitizedIdProperty);
-//            return "UNWIND $data AS row " +
-//                    "MERGE (source:`" + BASE_ENTITY_LABEL + "` {id: row.source}) " +
-//                    "MERGE (target:`" + BASE_ENTITY_LABEL + "` {id: row.target}) " +
-//                    "WITH source, target, row " +
-//                    "CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel " +
-//                    "RETURN distinct 'done'";
-        } else {
-            return """
-                    UNWIND $data AS row
-                    MERGE (source:$(row.source_label) {%1$s: row.source})
-                    MERGE (target:$(row.target_label) {%1$s: row.target})
-                    
-                    //CALL apoc.merge.node([row.source_label], {%1$s: row.source}, {}, {}) YIELD node as source
-                    //CALL apoc.merge.node([row.target_label], {%1$s: row.target}, {}, {}) YIELD node as target
-                    MERGE (source)-[rel:$(row.type)]->(target)
-                    
-                    //CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
-                    RETURN distinct 'done'
-                    """.formatted(sanitizedIdProperty);
-//            return "UNWIND $data AS row " +
-//                    "CALL apoc.merge.node([row.source_label], {id: row.source}, {}, {}) YIELD node as source " +
-//                    "CALL apoc.merge.node([row.target_label], {id: row.target}, {}, {}) YIELD node as target " +
-//                    "CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel " +
-//                    "RETURN distinct 'done'";
-        }
+        Neo4jGraphUtils.addGraphDocuments(graphDocuments, includeSource, baseEntityLabel,/* idProperty, sanitizedIdProperty, sanitizedTextProperty, sanitizedLabel, */this);
     }
 
     private List<String> formatNodeProperties(List<Record> records) {
