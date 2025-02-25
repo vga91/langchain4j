@@ -14,9 +14,8 @@ import org.neo4j.driver.types.TypeSystem;
 
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
+import static dev.langchain4j.Neo4jUtils.getBacktickText;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
@@ -34,7 +33,7 @@ public class Neo4jContentRetriever implements ContentRetriever {
             Cypher query:
             """);
 
-    private static final Pattern BACKTICKS_PATTERN = Pattern.compile("```(.*?)```", Pattern.MULTILINE | Pattern.DOTALL);
+    
     private static final Type NODE = TypeSystem.getDefault().NODE();
 
     private final Neo4jGraph graph;
@@ -61,22 +60,13 @@ public class Neo4jContentRetriever implements ContentRetriever {
         return response.stream().map(Content::from).toList();
     }
 
-    // TODO - riutilizzare questo?
     private String generateCypherQuery(String schema, String question) {
 
         Prompt cypherPrompt = promptTemplate.apply(Map.of("schema", schema, "question", question));
         String cypherQuery = chatLanguageModel.generate(cypherPrompt.text());
-        return getString(cypherQuery);
+        return getBacktickText(cypherQuery);
     }
 
-    // TODO - put in Neo4jUtils?
-    public static String getString(String cypherQuery) {
-        Matcher matcher = BACKTICKS_PATTERN.matcher(cypherQuery);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return cypherQuery;
-    }
 
     private List<String> executeQuery(String cypherQuery) {
 

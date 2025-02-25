@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static dev.langchain4j.Neo4jUtils.getBacktickText;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 import static dev.langchain4j.transformer.GraphDocument.Edge;
@@ -30,23 +31,6 @@ import static dev.langchain4j.transformer.LLMGraphTransformerUtils.parseJson;
 
 @Getter
 public class LLMGraphTransformer {
-
-
-    /*
-    TODO - RICOPIARE QUESTO COMMENTO
-    
-
-     */
-
-    /*
-
-    TODO Option to link entities back to the source document
-    
-    TODO Additional metadata about the entities and their relationships (e.g. facts, claims, confidence-scores)
-    TODO - JUST A FACT These knowledge graphs form the foundation for advanced RAG patterns in GraphRAG (see https://graphrag.com)
-    TODO- JUST A FACT, WRITE ON THE PR Besides data from document loaders also data that already exists in large text fields in databases (semi-structured data) could be analyzed and extracted
-    This also offers the means to then run additional algorithms on the data e.g. for query focused summarization that compute communities/clusters of topics and summarize them with an LLM
-     */
 
     private final List<String> allowedNodes;
     private final List<String> allowedRelationships;
@@ -100,30 +84,27 @@ public class LLMGraphTransformer {
     }
 
     public List<ChatMessage> createUnstructuredPrompt(String text) {
-        // TODO - test with this
         if (prompt != null && !prompt.isEmpty()) {
             return prompt;
         }
 
         final boolean withAllowedNodes = allowedNodes != null && !allowedNodes.isEmpty();
-        String nodeLabelsStr = withAllowedNodes ? allowedNodes.toString() : "";
         
         final boolean withAllowedRels = allowedRelationships != null && !allowedRelationships.isEmpty();
-        String relTypesStr = withAllowedRels ? allowedRelationships.toString() : "";
 
-        // TODO - optimize
-        // TODO - use prompt template via promptTemplate.apply()
-        String systemPrompt = String.join("\n", Arrays.asList(
-                "You are a top-tier algorithm designed for extracting information in structured formats to build a knowledge graph.",
-                "Your task is to identify entities and relations from a given text and generate output in JSON format.",
-                "Each object should have keys: 'head', 'head_type', 'relation', 'tail', and 'tail_type'.",
-                withAllowedNodes ? "The 'head_type' and 'tail_type' must be one of: " + allowedNodes.toString() : "",
-                withAllowedRels ? "The 'relation' must be one of: " + allowedRelationships.toString() : "",
-                "IMPORTANT NOTES:\n- Don't add any explanation or extra text.",
-                additionalInstructions
-        ));
+//        // TODO - optimize
+//        // TODO - use prompt template via promptTemplate.apply()
+//        String systemPrompt = String.join("\n", Arrays.asList(
+//                "You are a top-tier algorithm designed for extracting information in structured formats to build a knowledge graph.",
+//                "Your task is to identify entities and relations from a given text and generate output in JSON format.",
+//                "Each object should have keys: 'head', 'head_type', 'relation', 'tail', and 'tail_type'.",
+//                withAllowedNodes ? "The 'head_type' and 'tail_type' must be one of: " + allowedNodes.toString() : "",
+//                withAllowedRels ? "The 'relation' must be one of: " + allowedRelationships.toString() : "",
+//                "IMPORTANT NOTES:\n- Don't add any explanation or extra text.",
+//                additionalInstructions
+//        ));
 
-        final PromptTemplate from = PromptTemplate.from(
+        final PromptTemplate systemTemplate = PromptTemplate.from(
                 """
                         You are a top-tier algorithm designed for extracting information in structured formats to build a knowledge graph.
                         Your task is to identify entities and relations from a given text and generate output in JSON format.
@@ -135,9 +116,7 @@ public class LLMGraphTransformer {
                         """
         );
 
-//        final Prompt systemPrompt = 
-
-        final SystemMessage systemMessage = from.apply(
+        final SystemMessage systemMessage = systemTemplate.apply(
                 Map.of(
                         "nodes", withAllowedNodes ? "The 'head_type' and 'tail_type' must be one of: " + allowedNodes.toString() : "",
                         "rels", withAllowedRels ? "The 'relation' must be one of: " + allowedRelationships.toString() : "",
@@ -148,18 +127,7 @@ public class LLMGraphTransformer {
 
         final String examplesString = getStringFromListOfMaps(EXAMPLES_PROMPT);
 
-        String humanPrompt = String.join("\n", Arrays.asList(
-                "Based on the following example, extract entities and relations from the provided text.",
-                withAllowedNodes ? "# ENTITY TYPES:\n" + allowedNodes.toString() : "",
-                withAllowedRels ? "# RELATION TYPES:\n" + allowedRelationships.toString() : "",
-                "Below are a number of examples of text and their extracted entities and relationships.",
-                examplesString,
-                additionalInstructions,
-                "For the following text, extract entities and relations as in the provided example.",
-                "Text: " + text
-        ));
-
-        final PromptTemplate from1 = PromptTemplate.from("""
+        final PromptTemplate humanTemplate = PromptTemplate.from("""
                 Based on the following example, extract entities and relations from the provided text.
                 {{nodes}}
                 {{rels}}
@@ -170,7 +138,7 @@ public class LLMGraphTransformer {
                 Text: {{input}}
                 """);
 
-        final UserMessage userMessage = from1.apply(
+        final UserMessage userMessage = humanTemplate.apply(
                 Map.of(
                         "nodes", withAllowedNodes ? "# ENTITY TYPES:\n" + allowedNodes.toString() : "",
                         "rels", withAllowedRels ? "# RELATION TYPES:\n" + allowedRelationships.toString() : "",
@@ -179,7 +147,6 @@ public class LLMGraphTransformer {
                         "input", text
                 )
         ).toUserMessage();
-//                new UserMessage(humanPrompt);
 
         return List.of(systemMessage, userMessage);
     }
@@ -192,18 +159,10 @@ public class LLMGraphTransformer {
         // todo - configurable, pr 
         //  use PromptTemplate handling via {{ }}
         final List<ChatMessage> messages = createUnstructuredPrompt(text);
-        // final PromptTemplate template = PromptTemplate.from(prompt);
-
-        System.out.println("messages = " + messages);
-        // TODO -- PromptTemplate
-
-        //final Prompt apply = template.apply(Map.of());
-        //final String text1 = apply.text();
         
         Set<Node> nodesSet = new HashSet<>();
         Set<Edge> relationships = new HashSet<>();
         
-        // TODO - DEPRECATED
         List<Map<String, String>> parsedJson = getJsonResult(messages);
         if (parsedJson == null || parsedJson.isEmpty()) {
             return null;
@@ -230,7 +189,6 @@ public class LLMGraphTransformer {
         }
 
         return new GraphDocument(nodesSet, relationships, document);
-//        return new GraphDocument(nodes, relationships, document);
     }
 
     private List<Map<String, String>> getJsonResult(List<ChatMessage> messages) {
@@ -240,7 +198,7 @@ public class LLMGraphTransformer {
                     .content()
                     .text();
             
-            rawSchema = Neo4jContentRetriever.getString(rawSchema);
+            rawSchema = getBacktickText(rawSchema);
 
             return parseJson(rawSchema);
         }, maxAttempts);

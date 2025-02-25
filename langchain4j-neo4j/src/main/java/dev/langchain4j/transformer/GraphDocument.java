@@ -20,26 +20,12 @@ public class GraphDocument {
         this.source = source;
     }
 
-//    public Document getSource() {
-//        return source;
-//    }
-//
-//    public Set<GraphDocument.Node> getNodes() {
-//        return nodes;
-//    }
-//
-//    public Set<GraphDocument.Edge> getRelationships() {
-//        return relationships;
-//    }
-
     @Getter
     @Setter
-    @EqualsAndHashCode // TODO - WRITE that is to de-duplicate nodes, e.g. testAddGraphDocumentsWithDeDuplication
-    // @JsonSerialize
+    @EqualsAndHashCode
     @ToString // for testing purpose
     public static class Node {
         private String id;
-        //        private String data;
         private String type;
 
         public Node(String id, String type) {
@@ -50,11 +36,8 @@ public class GraphDocument {
 
     @Getter
     @EqualsAndHashCode
-    // @JsonSerialize
     @ToString // for testing purpose
     public static class Edge {
-        //        private String from;
-//        private String to;
         private Node sourceNode;
         private Node targetNode;
         private String type;

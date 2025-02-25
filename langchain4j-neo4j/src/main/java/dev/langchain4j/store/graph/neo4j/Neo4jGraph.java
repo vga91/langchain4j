@@ -1,11 +1,7 @@
 package dev.langchain4j.store.graph.neo4j;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.transformer.Graph;
 import dev.langchain4j.transformer.GraphDocument;
-import dev.langchain4j.transformer.LLMGraphTransformer;
 import dev.langchain4j.transformer.LLMGraphTransformerUtils;
 import lombok.Builder;
 import lombok.Getter;
@@ -18,7 +14,6 @@ import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.summary.ResultSummary;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
