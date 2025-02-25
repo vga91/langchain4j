@@ -1,7 +1,6 @@
 package dev.langchain4j.store.graph.neo4j;
 
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingStore;
 import dev.langchain4j.transformer.GraphDocument;
 import dev.langchain4j.transformer.LLMGraphTransformerUtils;
 import lombok.Builder;
@@ -26,8 +25,6 @@ import java.util.stream.Collectors;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 //import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
-import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
-import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.sanitizeOrThrows;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
 import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
 
@@ -36,23 +33,12 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
 
     @Override
     protected String getDefaultLabel() {
-        return BASE_ENTITY_LABEL;
+        return DEFAULT_ENTITY_LABEL;
     }
 
-    /**
-     * Creates an instance of Neo4jGraph defining a {@link Driver}
-     * starting from uri, user and password
-     */
-    // TODO - test with it
-    public static class Neo4jGraphBuilder {
-        public Neo4jGraphBuilder withBasicAuth(String uri, String user, String password) {
-            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
-        }
-    }
-    
     // TODO - configurable
-    public static final String BASE_ENTITY_LABEL = "__Entity__";
 
+    public static final String DEFAULT_ENTITY_LABEL = "__Entity__";
     private static final String NODE_PROPERTIES_QUERY = """
             CALL apoc.meta.data()
             YIELD label, other, elementType, type, property
@@ -76,44 +62,37 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             UNWIND other AS other_node
             RETURN {start: label, type: property, end: toString(other_node)} AS output
             """;
-    
-    /* default configs */
-//    public static final String DEFAULT_ID_PROP = "id";
-//    public static final String DEFAULT_TEXT_PROP = "text";
-    
-//    private final Driver driver;
-//    private final String idProperty;
-//    private final String textProperty;
-//    private final String label;
-//    private final String sanitizedIdProperty;
-//    private final String sanitizedTextProperty;
-//    private final String sanitizedLabel;
 
     @Getter
     private String schema;
+
+    /**
+     * Creates an instance of Neo4jGraph defining a {@link Driver}
+     * starting from uri, user and password
+     */
+    // TODO - test with it
+    public static class Neo4jGraphBuilder {
+        public Neo4jGraphBuilder withBasicAuth(String uri, String user, String password) {
+            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
+        }
+    }
     
     // TODO - add withBasicAuth like Neo4jEmbeddingStore ????
     //      TODO - base Class??? or util???
 
     /**
-     * TODO - docs
-     * @param driver
+     * Creates an instance of Neo4jGraph
+     * 
+     * @param driver: the {@link Driver} (required)
+     * @param config: the {@link SessionConfig}  (optional, default is `SessionConfig.forDatabase(`databaseName`)`)
+     * @param databaseName: the optional database name (default: "neo4j")
+     * @param label: the optional label name (default: "__Entity__")
+     * @param idProperty: the optional id property name (default: "id")
+     * @param textProperty: the optional textProperty property name (default: "text")
      */
     @Builder
     public Neo4jGraph(SessionConfig config, String databaseName, Driver driver, String label, String idProperty, String textProperty) {
         super(config, databaseName, driver, label, idProperty, textProperty);
-
-//        /* required configs */
-//        this.driver = ensureNotNull(driver, "driver");
-//        this.driver.verifyConnectivity();
-//
-//        this.label = getOrDefault(label, DEFAULT_LABEL);
-//        this.idProperty = getOrDefault(idProperty, DEFAULT_ID_PROP);
-//        this.textProperty = getOrDefault(textProperty, DEFAULT_TEXT_PROP);
-//        /* sanitize labels and property names, to prevent from Cypher Injections */
-//        this.sanitizedLabel = sanitizeOrThrows(this.label, "label");
-//        this.sanitizedIdProperty = sanitizeOrThrows(this.idProperty, "idProperty");
-//        this.sanitizedTextProperty = sanitizeOrThrows(this.textProperty, "textProperty");
         
         try {
             refreshSchema();
@@ -189,26 +168,24 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         if (baseEntityLabel) { // Check 
             // Create constraint if not exists
             executeWrite(
-                    "CREATE CONSTRAINT IF NOT EXISTS FOR (b:" + BASE_ENTITY_LABEL + ") REQUIRE b.%s IS UNIQUE;"
-                            .formatted(sanitizedIdProperty)
+                    "CREATE CONSTRAINT IF NOT EXISTS FOR (b:%s) REQUIRE b.%s IS UNIQUE;"
+                            .formatted(sanitizedLabel, sanitizedIdProperty)
             );
             refreshSchema(); // Refresh constraint information
         }
-
-        String nodeImportQuery = getNodeImportQuery(baseEntityLabel, includeSource);
-        String relImportQuery = getRelImportQuery(baseEntityLabel);
+        
 
         for (GraphDocument graphDoc : graphDocuments) {
             final Document source = graphDoc.getSource();
-            if (!source.metadata().containsKey(sanitizedIdProperty)) {
+            if (!source.metadata().containsKey(idProperty)) {
                 // TODO - CHECK THIS
-                source.metadata().put(sanitizedIdProperty, generateMD5(source.text()));
+                source.metadata().put(idProperty, generateMD5(source.text()));
             }
 
             // Remove backticks from node types
-            for (GraphDocument.Node node : graphDoc.getNodes()) {
-                node.setType(removeBackticks(node.getType()));
-            }
+//            for (GraphDocument.Node node : graphDoc.getNodes()) {
+//                node.setType(removeBackticks(node.getType()));
+//            }
 
             // Import nodes
             Map<String, Object> nodeParams = new HashMap<>();
@@ -221,6 +198,8 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             final Map<String, Object> metadata = source.metadata().toMap();
             final Map<String, Object> document = Map.of("metadata", metadata, "text", source.text());
             nodeParams.put("document", document);
+
+            String nodeImportQuery = getNodeImportQuery(baseEntityLabel, includeSource);
             executeWrite(nodeImportQuery, nodeParams);
 
             // Import relationships
@@ -233,6 +212,7 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
                             "type", removeBackticks(rel.getType().replace(" ", "_").toUpperCase())
                     )).toList();
 
+            String relImportQuery = getRelImportQuery(baseEntityLabel);
             executeWrite(relImportQuery, Map.of("data", relData));
         }
     }
@@ -244,17 +224,19 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         if (baseEntityLabel) {
             return includeDocsQuery +
                     "UNWIND $data AS row " +
-                    "MERGE (source:`" + sanitizedLabel + "` {`%1$s`: row.`%1$s`}) ".formatted(sanitizedIdProperty) +
-                    "SET source += {} " +
+                    "MERGE (source:%1$s {%2$s: row.id}) ".formatted(sanitizedLabel, sanitizedIdProperty) +
+//                    "SET source += {} " +
 //                    "SET source += row.properties " +
                     (includeSource ? "MERGE (d)-[:MENTIONS]->(source) " : "") +
                     "WITH source, row " +
-                    "CALL apoc.create.addLabels(source, [row.type]) YIELD node " +
+                    "SET source:$(row.type) " +
+                    // "CALL apoc.create.addLabels(source, [row.type]) YIELD node " +
                     "RETURN distinct 'done' AS result";
         } else {
             return includeDocsQuery +
                     "UNWIND $data AS row " +
-                    "CALL apoc.merge.node([row.type], {`%1$s`: row.`%1$s`}, {}, {}) YIELD node ".formatted(sanitizedIdProperty) +
+                    "MERGE (node:$(row.type) {%1$s: row.id}) ".formatted(sanitizedIdProperty) +
+//                    "CALL apoc.merge.node([row.type], {%1$s: row.%1$s}, {}, {}) YIELD node ".formatted(sanitizedIdProperty) +
 //                    "CALL apoc.merge.node([row.type], {id: row.id}, row.properties, {}) YIELD node " +
                     (includeSource ? "MERGE (d)-[:MENTIONS]->(node) " : "") +
                     "RETURN distinct 'done' AS result";
@@ -267,7 +249,7 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         }
         return """
                 MERGE (d:Document {id: $document.metadata.id})
-                SET d.`%1$s` = $document.text
+                SET d.%1$s = $document.text
                 SET d += $document.metadata
                 WITH d
                 """.formatted(sanitizedTextProperty);
@@ -277,12 +259,13 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         if (baseEntityLabel) {
             return """
                 UNWIND $data AS row
-                MERGE (source:`%1$s` {id: row.source})
-                MERGE (target:`%1$s` {id: row.target})
+                MERGE (source:%1$s {%2$s: row.source})
+                MERGE (target:%1$s {%2$s: row.target})
                 WITH source, target, row
-                CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
+                MERGE (source)-[rel:$(row.type)]->(target)
+                // CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
                 RETURN distinct 'done'
-                """.formatted(BASE_ENTITY_LABEL);
+                """.formatted(sanitizedLabel, sanitizedIdProperty);
 //            return "UNWIND $data AS row " +
 //                    "MERGE (source:`" + BASE_ENTITY_LABEL + "` {id: row.source}) " +
 //                    "MERGE (target:`" + BASE_ENTITY_LABEL + "` {id: row.target}) " +
@@ -292,11 +275,16 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         } else {
             return """
                     UNWIND $data AS row
-                    CALL apoc.merge.node([row.source_label], {id: row.source}, {}, {}) YIELD node as source
-                    CALL apoc.merge.node([row.target_label], {id: row.target}, {}, {}) YIELD node as target
-                    CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
+                    MERGE (source:$(row.source_label) {%1$s: row.source})
+                    MERGE (target:$(row.target_label) {%1$s: row.target})
+                    
+                    //CALL apoc.merge.node([row.source_label], {%1$s: row.source}, {}, {}) YIELD node as source
+                    //CALL apoc.merge.node([row.target_label], {%1$s: row.target}, {}, {}) YIELD node as target
+                    MERGE (source)-[rel:$(row.type)]->(target)
+                    
+                    //CALL apoc.merge.relationship(source, row.type, {}, {}, target) YIELD rel
                     RETURN distinct 'done'
-                    """;
+                    """.formatted(sanitizedIdProperty);
 //            return "UNWIND $data AS row " +
 //                    "CALL apoc.merge.node([row.source_label], {id: row.source}, {}, {}) YIELD node as source " +
 //                    "CALL apoc.merge.node([row.target_label], {id: row.target}, {}, {}) YIELD node as target " +

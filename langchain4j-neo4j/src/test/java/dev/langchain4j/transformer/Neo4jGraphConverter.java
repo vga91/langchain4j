@@ -10,9 +10,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.internal.util.Iterables;
 import org.neo4j.driver.internal.value.PathValue;
@@ -31,12 +28,14 @@ import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static dev.langchain4j.store.graph.neo4j.BaseNeo4jBuilder.DEFAULT_ID_PROP;
 import static dev.langchain4j.store.graph.neo4j.BaseNeo4jBuilder.DEFAULT_TEXT_PROP;
-import static dev.langchain4j.store.graph.neo4j.Neo4jGraph.BASE_ENTITY_LABEL;
+import static dev.langchain4j.store.graph.neo4j.Neo4jGraph.DEFAULT_ENTITY_LABEL;
 import static org.assertj.core.api.Assertions.assertThat;
 
 
 @Testcontainers
 public class Neo4jGraphConverter {
+    public static final String USERNAME = "neo4j";
+    public static final String ADMIN_PASSWORD = "adminPass";
 
     public static final String CAT_ON_THE_TABLE = "Sylvester the cat is on the table";
     public static final String KEANU_REEVES_ACTED = "Keanu Reeves acted in Matrix";
@@ -45,20 +44,23 @@ public class Neo4jGraphConverter {
     private static LLMGraphTransformer graphTransformer;
     private static List<GraphDocument> graphDocs;
     private static Neo4jGraph graph;
-    private static Driver driver;
-    private static ChatLanguageModel model;
+
+    public static final String CUSTOM_TEXT = "custom  `text";
+    public static final String CUSTOM_ID = "custom  ` id";
+    public static final String CUSTOM_LABEL = "Label ` to \\ sanitize";
     
+
     @Container
     static Neo4jContainer<?> neo4jContainer = getNeo4jContainer()
-            .withoutAuthentication()
+            .withAdminPassword(ADMIN_PASSWORD)
             .withPlugins("apoc");
 
 
     @BeforeAll
     static void beforeEach() {
-        driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.none());
 
-        model = OpenAiChatModel.builder()
+        //    private static Driver driver;
+        ChatLanguageModel model = OpenAiChatModel.builder()
                 .baseUrl("http://langchain4j.dev/demo/openai/v1")
                 .apiKey("demo")
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -71,7 +73,7 @@ public class Neo4jGraphConverter {
                 .model(model)
                 .build();
         graph = Neo4jGraph.builder()
-                .driver(driver)
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
                 .build();
 
 
@@ -125,7 +127,32 @@ public class Neo4jGraphConverter {
 
     @Test
     void testAddGraphDocumentsWithCustomIdTextAndLabel() {
-        // todo
+        final Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .textProperty(CUSTOM_TEXT)
+                .idProperty(CUSTOM_ID)
+                .label(CUSTOM_LABEL)
+                .build();
+
+        neo4jGraph.addGraphDocuments(graphDocs, false, false);
+
+        final List<Record> records = neo4jGraph.executeRead("MATCH p=()-[]->() RETURN p");
+        assertThat(records).hasSize(2);
+        records.forEach(record -> {
+            final PathValue p = (PathValue) record.get("p");
+            final Path path = p.asPath();
+            assertThat(path).hasSize(1);
+            final Node start = path.start();
+            assertNodeWithoutBaseEntityLabel(start);
+            assertNodeProps(start, START_NODE_REGEX, CUSTOM_ID);
+            final Node end = path.end();
+            assertNodeWithoutBaseEntityLabel(end);
+            assertNodeProps(end, END_NODE_REGEX, CUSTOM_ID);
+            final List<Relationship> rels = Iterables.asList(path.relationships());
+            assertThat(rels).hasSize(1);
+        });
+
+        neo4jGraph.close();
     }
 
     @Test
@@ -141,10 +168,10 @@ public class Neo4jGraphConverter {
             final Path path = p.asPath();
             assertThat(path).hasSize(1);
             final Node start = path.start();
-            assertNodeWithBaseEntityLabel(start);
+            assertNodeWithBaseEntityLabel(start, DEFAULT_ENTITY_LABEL);
             assertNodeProps(start, START_NODE_REGEX, DEFAULT_ID_PROP);
             final Node end = path.end();
-            assertNodeWithBaseEntityLabel(end);
+            assertNodeWithBaseEntityLabel(end, DEFAULT_ENTITY_LABEL);
             assertNodeProps(end, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(1);
@@ -171,11 +198,11 @@ public class Neo4jGraphConverter {
             extractedDocument(node, DEFAULT_ID_PROP, DEFAULT_TEXT_PROP);
 
             node = iterator.next();
-            assertNodeWithBaseEntityLabel(node);            
+            assertNodeWithBaseEntityLabel(node, DEFAULT_ENTITY_LABEL);            
             assertNodeProps(node, START_NODE_REGEX, DEFAULT_ID_PROP);
 
             node = iterator.next();
-            assertNodeWithBaseEntityLabel(node);
+            assertNodeWithBaseEntityLabel(node, DEFAULT_ENTITY_LABEL);
             assertNodeProps(node, END_NODE_REGEX, DEFAULT_ID_PROP);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(2);
@@ -187,7 +214,40 @@ public class Neo4jGraphConverter {
 
     @Test
     void testAddGraphDocumentsWithBaseEntityLabelIncludeSourceAndCustomIdTextAndLabel() {
-        // todo   
+
+        final Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .textProperty(CUSTOM_TEXT)
+                .idProperty(CUSTOM_ID)
+                .label(CUSTOM_LABEL)
+                .build();
+
+        neo4jGraph.addGraphDocuments(graphDocs, true, true);
+
+        final List<Record> records = graph.executeRead("MATCH p=(:Document)-[:MENTIONS]->()-[]->() RETURN p");
+        assertThat(records).hasSize(2);
+        records.forEach(record -> {
+            final PathValue p = (PathValue) record.get("p");
+            final Path path = p.asPath();
+            assertThat(path).hasSize(2);
+            final Iterator<Node> iterator = path.nodes().iterator();
+            Node node = iterator.next();
+            assertThat(node.labels()).hasSize(1);
+            extractedDocument(node, DEFAULT_ID_PROP, CUSTOM_TEXT);
+
+            node = iterator.next();
+            assertNodeWithBaseEntityLabel(node, CUSTOM_LABEL);
+            assertNodeProps(node, START_NODE_REGEX, CUSTOM_ID);
+
+            node = iterator.next();
+            assertNodeWithBaseEntityLabel(node, CUSTOM_LABEL);
+            assertNodeProps(node, END_NODE_REGEX, CUSTOM_ID);
+            final List<Relationship> rels = Iterables.asList(path.relationships());
+            assertThat(rels).hasSize(2);
+            assertThat(rels.get(1).type()).isNotEqualTo("MENTIONS");
+        });
+        
+        neo4jGraph.close();
     }
 
     @Test
@@ -225,14 +285,14 @@ public class Neo4jGraphConverter {
     private static void assertNodeWithoutBaseEntityLabel(Node start) {
         final Iterable<String> labels = start.labels();
         assertThat(labels).hasSize(1);
-        assertThat(labels).doesNotContain(BASE_ENTITY_LABEL);
+        assertThat(labels).doesNotContain(DEFAULT_ENTITY_LABEL);
         
     }
 
-    private static void assertNodeWithBaseEntityLabel(Node start) {
+    private static void assertNodeWithBaseEntityLabel(Node start, String entityLabel) {
         final Iterable<String> labels = start.labels();
         assertThat(labels).hasSize(2);
-        assertThat(labels).contains(BASE_ENTITY_LABEL);
+        assertThat(labels).contains(entityLabel);
     }
 
     private static void assertNodeProps(Node start, String propRegex, String idProp) {

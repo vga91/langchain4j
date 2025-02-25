@@ -48,7 +48,8 @@ public class LLMGraphTransformerUtils {
     }
 
     public static String removeBackticks(String input) {
-        return input.replace("`", "");
+        return input;//.replace("`", "");
+// TODO        return input.replace("`", "");
     }
     
     public static final List<Map<String, String>> EXAMPLES_PROMPT = Arrays.asList(
