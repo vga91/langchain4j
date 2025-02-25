@@ -18,9 +18,9 @@ public class LLMGraphTransformerUtils {
         return OBJECT_MAPPER.convertValue(object, new TypeReference<>() {});
     }
 
-    public static String getStringFromListOfMaps(List<Map<String, String>> examples1) {
+    public static String getStringFromListOfMaps(List<Map<String, String>> list) {
         try {
-            return OBJECT_MAPPER.writeValueAsString(examples1);
+            return OBJECT_MAPPER.writeValueAsString(list);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }

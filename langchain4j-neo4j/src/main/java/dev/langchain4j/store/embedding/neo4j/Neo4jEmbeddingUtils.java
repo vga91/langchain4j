@@ -17,7 +17,7 @@ import java.util.stream.Stream;
 
 import static org.neo4j.cypherdsl.support.schema_name.SchemaNames.sanitize;
 
-class Neo4jEmbeddingUtils {
+public class Neo4jEmbeddingUtils {
     
     /* not-configurable strings, just used under-the-hood in `UNWIND $rows ...` statement */
     public static final String EMBEDDINGS_ROW_KEY = "embeddingRow";
@@ -94,7 +94,7 @@ class Neo4jEmbeddingUtils {
                         }
                 );
     }
-
+    // TODO - move in Neo4jUtils
     public static String sanitizeOrThrows(String value, String config) {
         return sanitize(value)
                 .orElseThrow(() -> {

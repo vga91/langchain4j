@@ -32,6 +32,7 @@ import static dev.langchain4j.transformer.LLMGraphTransformerUtils.parseJson;
 @Getter
 public class LLMGraphTransformer {
 
+    public static final String DEFAULT_NODE_TYPE = "Node";
     private final List<String> allowedNodes;
     private final List<String> allowedRelationships;
     private final List<ChatMessage> prompt;
@@ -173,8 +174,8 @@ public class LLMGraphTransformer {
                 continue;
             }
 
-            Node sourceNode = new Node(rel.get("head"), rel.getOrDefault("head_type", "DefaultNodeType"));
-            Node targetNode = new Node(rel.get("tail"), rel.getOrDefault("tail_type", "DefaultNodeType"));
+            Node sourceNode = new Node(rel.get("head"), rel.getOrDefault("head_type", DEFAULT_NODE_TYPE));
+            Node targetNode = new Node(rel.get("tail"), rel.getOrDefault("tail_type", DEFAULT_NODE_TYPE));
 
             nodesSet.add(sourceNode);
             nodesSet.add(targetNode);

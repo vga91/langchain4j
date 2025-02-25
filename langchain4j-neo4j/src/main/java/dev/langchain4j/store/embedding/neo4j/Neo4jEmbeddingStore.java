@@ -6,6 +6,7 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.graph.neo4j.BaseNeo4jBuilder;
 import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.AuthTokens;
@@ -34,7 +35,7 @@ import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.*;
  * Annotated with `@Getter` to be used in {@link Neo4jEmbeddingUtils}
  */
 @Getter
-public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
+public class Neo4jEmbeddingStore extends BaseNeo4jBuilder implements EmbeddingStore<TextSegment> {
 
     private static final Logger log = LoggerFactory.getLogger(Neo4jEmbeddingStore.class);
 
@@ -99,9 +100,11 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
             String databaseName,
             String retrievalQuery,
             long awaitIndexTimeout) {
-        
+        super(config, databaseName, driver, label, idProperty, textProperty);
+
         /* required configs */
         this.driver = ensureNotNull(driver, "driver");
+        this.driver.verifyConnectivity();
         this.dimension = ensureBetween(dimension, 0, 4096, "dimension");
 
         /* optional configs */
@@ -305,7 +308,7 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
         }
     }
 
-    private Session session() {
-        return this.driver.session(this.config);
-    }
+//    private Session session() {
+//        return this.driver.session(this.config);
+//    }
 }
