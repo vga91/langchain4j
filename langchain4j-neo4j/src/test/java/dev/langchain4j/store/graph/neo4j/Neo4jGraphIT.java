@@ -18,6 +18,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
 
+import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers
@@ -25,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class Neo4jGraphIT {
 
     @Container
-    private static final Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.16.0"))
+    private static final Neo4jContainer<?> neo4jContainer = getNeo4jContainer()
             .withoutAuthentication()
             .withLabsPlugins("apoc");
 

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -102,7 +101,6 @@ class LLMGraphTransformerIT {
         assertThat(documents).hasSize(4);
         final String[] strings = {keanu, lino, goku, levi, matrix, vac, db, aot};
         graphDocsAssertions(documents, Stream.of(strings), Stream.of("acted", "acted", "acted", "acted"));
-        //assertThat(collect2).isEqualTo(cat12);
 
         final LLMGraphTransformer build3 = LLMGraphTransformer.builder()
                 .model(model)
@@ -112,7 +110,6 @@ class LLMGraphTransformerIT {
 
 
         final List<GraphDocument> documents3 = build3.convertToGraphDocuments(docs);
-        System.out.println("documents3 = " + documents3);
         assertThat(documents).hasSize(4);
         final String[] elements3 = {keanu, lino, goku, hajime, levi, matrix, vac, db, aot};
 
@@ -131,37 +128,18 @@ class LLMGraphTransformerIT {
         final List<Document> documents = List.of(doc3);
         List<GraphDocument> graphDocs = transformer.convertToGraphDocuments(documents);
 
-        // TODO - change assertions
         assertThat(graphDocs).hasSize(1);
-//        final GraphDocument graphDocument = graphDocs.get(0);
-//        final Document source = graphDocument.getSource();
-//        assertThat(source).isEqualTo(doc3);
-//        final Set<GraphDocument.Edge> relationships = graphDocument.getRelationships();
-//        assertThat(relationships).hasSize(2);
-//        final String relStrings = relationships.stream()
-//                .map(Object::toString)
-//                .collect(Collectors.joining("\n"));
-//        assertThat(relStrings).containsIgnoringCase("acted");
-//        assertThat(relStrings).containsIgnoringCase("born");
-//        
-//        final Set<GraphDocument.Node> nodes = graphDocument.getNodes();
-//        assertThat(nodes).hasSize(3);
-//        final String nodesStrings = nodes.stream()
-//                .map(Object::toString)
-//                .collect(Collectors.joining("\n"));
-//        assertThat(nodesStrings).containsIgnoringCase("Matrix");
-//        assertThat(nodesStrings).containsIgnoringCase("Keanu");
-//        assertThat(nodesStrings).containsIgnoringCase("Beirut");
-
-        graphDocsAssertions(graphDocs, Stream.of("matrix", "keanu", "beirut"), Stream.of("acted", "born"));
+        final Stream<String> expectedNodeElements = Stream.of("matrix", "keanu", "beirut");
+        final Stream<String> expectedEdgeElements = Stream.of("acted", "born");
+        graphDocsAssertions(graphDocs, expectedNodeElements, expectedEdgeElements);
     }
 
-    private static void graphDocsAssertions(List<GraphDocument> documents, Stream<String> expectedNodeElements, Stream<String> expectedNumRels) {
+    private static void graphDocsAssertions(List<GraphDocument> documents, Stream<String> expectedNodeElements, Stream<String> expectedEdgeElements) {
         final List<String> actualNodes = getNodeIds(documents);
         final List<String> actualRelationships = getRelationshipIds(documents);
         entitiesAssertions(expectedNodeElements, actualNodes);
 
-        entitiesAssertions(expectedNumRels, actualRelationships);
+        entitiesAssertions(expectedEdgeElements, actualRelationships);
     }
 
     private static void entitiesAssertions(Stream<String> expectedNodeElements, List<String> actualNodes) {

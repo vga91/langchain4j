@@ -18,6 +18,7 @@ import org.testcontainers.junit.jupiter.Container;
 
 import java.util.List;
 
+import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -27,7 +28,7 @@ import static org.mockito.Mockito.when;
 class Neo4jContentRetrieverIT {
 
     @Container
-    private static final Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>("neo4j:latest")
+    private static final Neo4jContainer<?> neo4jContainer = getNeo4jContainer()
             .withoutAuthentication()
             .withPlugins("apoc");
 

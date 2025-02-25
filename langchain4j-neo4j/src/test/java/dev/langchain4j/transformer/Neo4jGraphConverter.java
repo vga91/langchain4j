@@ -16,29 +16,25 @@ import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.internal.util.Iterables;
 import org.neo4j.driver.internal.value.PathValue;
-import org.neo4j.driver.internal.value.StringValue;
 import org.neo4j.driver.types.Node;
 import org.neo4j.driver.types.Path;
 import org.neo4j.driver.types.Relationship;
 import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
-import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static dev.langchain4j.store.graph.neo4j.Neo4jGraph.BASE_ENTITY_LABEL;
 import static org.assertj.core.api.Assertions.assertThat;
 
-// TODO - mettere i test con Neo4j, mentre nell'altro quelli solo di graphTransformer
-// todo - chiamarlo converter or roba del genere
 
 @Testcontainers
-public class Neo4jGraphTransformer {
+public class Neo4jGraphConverter {
 
     public static final String SYLVESTER_THE_CAT_IS_ON_THE_TABLE = "Sylvester the cat is on the table";
     public static final String KEANU_REEVES_ACTED_IN_MATRIX = "Keanu Reeves acted in Matrix";
@@ -50,10 +46,11 @@ public class Neo4jGraphTransformer {
     
     // TODO... 
     @Container
-    static Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.26"))
+    static Neo4jContainer<?> neo4jContainer = getNeo4jContainer()
             .withoutAuthentication()
             .withPlugins("apoc");
-    
+
+
     @BeforeAll
     static void beforeEach() {
         driver = GraphDatabase.driver(neo4jContainer.getBoltUrl(), AuthTokens.none());
@@ -67,15 +64,15 @@ public class Neo4jGraphTransformer {
                 .logResponses(true)
                 .build();
 
-        // TODO - EXAMPLES WITH VARIOUS BUILDER
         graphTransformer = LLMGraphTransformer.builder()
                 .model(model)
                 .build();
         graph = Neo4jGraph.builder()
                 .driver(driver)
                 .build();
-        
-        
+
+
+        // given
         Document docCat = new DefaultDocument(SYLVESTER_THE_CAT_IS_ON_THE_TABLE, Metadata.from("key2", "value2"));
         Document docKeanu = new DefaultDocument(KEANU_REEVES_ACTED_IN_MATRIX, Metadata.from("key33", "value3"));
         final List<Document> documents = List.of(docCat, docKeanu);
@@ -98,14 +95,11 @@ public class Neo4jGraphTransformer {
 
     @Test
     void testAddGraphDocuments() {
-//        Document doc2 = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-//        Document doc3 = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key3", "value3"));
-//        final List<Document> documents = List.of(doc2, doc3);
-//        List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
 
+        // when
         graph.addGraphDocuments(graphDocs, false, false);
 
-        // TODO - ASSERTIONS 
+        // then
         final List<Record> records = graph.executeRead("MATCH p=()-[]->() RETURN p");
         assertThat(records).hasSize(2);
         records.forEach(record -> {
@@ -113,27 +107,27 @@ public class Neo4jGraphTransformer {
             final Path path = p.asPath();
             assertThat(path).hasSize(1);
             final Node start = path.start();
-            assertThat(start.labels()).hasSize(1);
-            assertThat(start.labels()).doesNotContain(BASE_ENTITY_LABEL);
+            assertNodeWithoutBaseEntityLabel(start);
             final Node end = path.end();
-            assertThat(end.labels()).hasSize(1);
-            assertThat(end.labels()).doesNotContain(BASE_ENTITY_LABEL);
+            assertNodeWithoutBaseEntityLabel(end);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(1);
         });
+
+        // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
     }
-    
+
+    private static void assertNodeWithoutBaseEntityLabel(Node start) {
+        assertThat(start.labels()).hasSize(1);
+        assertThat(start.labels()).doesNotContain(BASE_ENTITY_LABEL);
+    }
+
     @Test
     void testAddGraphDocumentsWithBaseEntityLabel() {
-//        Document docCat = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-//        Document docKeanu = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key33", "value3"));
-//        final List<Document> documents = List.of(docCat, docKeanu);
-
-        // TODO - maybe metadata stored here in GraphDocument?
-//        List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
-
+        // when
         graph.addGraphDocuments(graphDocs, false, true);
 
+        // then
         final List<Record> records = graph.executeRead("MATCH p=()-[]->() RETURN p");
         assertThat(records).hasSize(2);
         records.forEach(record -> {
@@ -141,26 +135,22 @@ public class Neo4jGraphTransformer {
             final Path path = p.asPath();
             assertThat(path).hasSize(1);
             final Node start = path.start();
-            extracted(start);
+            assertNodeWithBaseEntityLabel(start);
             final Node end = path.end();
-            extracted(end);
+            assertNodeWithBaseEntityLabel(end);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(1);
         });
+
+        // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
     }
     
-    // TODO - deignore
     @Test
     void testAddGraphDocumentsWithBaseEntityLabelAndIncludeSource() {
-//        Document docCat = new DefaultDocument("Sylvester the cat is on the table", Metadata.from("key2", "value2"));
-//        Document docKeanu = new DefaultDocument("Keanu Reeves acted in Matrix", Metadata.from("key33", "value3"));
-//        final List<Document> documents = List.of(docCat, docKeanu);
-
-        // TODO - maybe metadata stored here in GraphDocument?
-//        List<GraphDocument> graphDocs = graphTransformer.convertToGraphDocuments(documents);
-
+        // when
         graph.addGraphDocuments(graphDocs, true, true);
 
+        // then
         final List<Record> records = graph.executeRead("MATCH p=(:Document)-[:MENTIONS]->()-[]->() RETURN p");
         assertThat(records).hasSize(2);
         records.forEach(record -> {
@@ -173,26 +163,46 @@ public class Neo4jGraphTransformer {
             extractedDocument(start);
 
             start = iterator.next();
-            extracted(start);
-//            final Node end = path.end();
+            assertNodeWithBaseEntityLabel(start);
 
             start = iterator.next();
-            extracted(start);
+            assertNodeWithBaseEntityLabel(start);
+            final List<Relationship> rels = Iterables.asList(path.relationships());
+            assertThat(rels).hasSize(2);
+            assertThat(rels.get(1).type()).isNotEqualTo("MENTIONS");
+        });
+        
+        // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
+    }
+
+    @Test
+    void testAddGraphDocumentsWithIncludeSource() {
+        // when
+        graph.addGraphDocuments(graphDocs, true, false);
+
+        // then
+        final List<Record> records = graph.executeRead("MATCH p=(:Document)-[:MENTIONS]->()-[]->() RETURN p");
+        assertThat(records).hasSize(2);
+        records.forEach(record -> {
+            final PathValue p = (PathValue) record.get("p");
+            final Path path = p.asPath();
+            assertThat(path).hasSize(2);
+            final Iterator<Node> iterator = path.nodes().iterator();
+            Node start = iterator.next();
+            assertThat(start.labels()).hasSize(1);
+            extractedDocument(start);
+
+            start = iterator.next();
+            assertNodeWithoutBaseEntityLabel(start);
+
+            start = iterator.next();
+            assertNodeWithoutBaseEntityLabel(start);
             final List<Relationship> rels = Iterables.asList(path.relationships());
             assertThat(rels).hasSize(2);
             assertThat(rels.get(1).type()).isNotEqualTo("MENTIONS");
         });
 
-//        final List<Record> document = graph.executeRead("MATCH (n:Document) RETURN n");
-//        assertThat(document.size()).isEqualTo(1);
-//
-//        final NodeValue nodeValue = (NodeValue) document.get(0).get("n");
-//        final Map<String, Object> map = nodeValue.asNode().asMap();
-//        // TODO - assertions
-//        System.out.println("map = " + map);
-        
-        // TODO - additional document, check that another document is added
-        
+        // todo - re-execute graph.addGraphDocuments(graphDocs, true, true); and see what happens 
     }
 
     private static void extractedDocument(Node start) {
@@ -204,17 +214,13 @@ public class Neo4jGraphTransformer {
         } else if (text.equals(KEANU_REEVES_ACTED_IN_MATRIX)){
             assertThat(map.get("key33")).isEqualTo("value3");
         } else {
-            throw new RuntimeException("TODO");
+            throw new RuntimeException("The text property is invalid: " + text);
         }
-//        assertThat(map).containsKey("text");
-//        assertThat(map).containsAnyOf(
-//                new AbstractMap.SimpleEntry("key2", "value2"),
-//                new AbstractMap.SimpleEntry("key33", "value3")
-//        );
     }
 
-    private static void extracted(Node start) {
-        assertThat(start.labels()).hasSize(2);
-        assertThat(start.labels()).contains(BASE_ENTITY_LABEL);
+    private static void assertNodeWithBaseEntityLabel(Node start) {
+        final Iterable<String> labels = start.labels();
+        assertThat(labels).hasSize(2);
+        assertThat(labels).contains(BASE_ENTITY_LABEL);
     }
 }

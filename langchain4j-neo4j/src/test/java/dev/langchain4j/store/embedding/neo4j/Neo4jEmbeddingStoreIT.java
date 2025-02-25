@@ -1,5 +1,6 @@
 package dev.langchain4j.store.embedding.neo4j;
 
+import static dev.langchain4j.Neo4jTestUtils.getNeo4jContainer;
 import static dev.langchain4j.internal.Utils.randomUUID;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_EMBEDDING_PROP;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_ID_PROP;
@@ -51,7 +52,7 @@ class Neo4jEmbeddingStoreIT {
 
     @Container
     static Neo4jContainer<?> neo4jContainer =
-            new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0")).withAdminPassword(ADMIN_PASSWORD);
+            getNeo4jContainer().withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
 
