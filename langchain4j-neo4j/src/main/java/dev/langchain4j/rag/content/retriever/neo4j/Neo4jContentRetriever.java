@@ -1,5 +1,9 @@
 package dev.langchain4j.rag.content.retriever.neo4j;
 
+import static dev.langchain4j.Neo4jUtils.getBacktickText;
+import static dev.langchain4j.internal.Utils.getOrDefault;
+import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
+
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.input.Prompt;
 import dev.langchain4j.model.input.PromptTemplate;
@@ -7,17 +11,12 @@ import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.store.graph.neo4j.Neo4jGraph;
+import java.util.List;
+import java.util.Map;
 import lombok.Builder;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.types.Type;
 import org.neo4j.driver.types.TypeSystem;
-
-import java.util.List;
-import java.util.Map;
-
-import static dev.langchain4j.Neo4jUtils.getBacktickText;
-import static dev.langchain4j.internal.Utils.getOrDefault;
-import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
 /**
  * A {@link ContentRetriever} that retrieves from an {@link Neo4jGraph}.
@@ -25,7 +24,8 @@ import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
  */
 public class Neo4jContentRetriever implements ContentRetriever {
 
-    private static final PromptTemplate DEFAULT_PROMPT_TEMPLATE = PromptTemplate.from("""
+    private static final PromptTemplate DEFAULT_PROMPT_TEMPLATE = PromptTemplate.from(
+            """
             Based on the Neo4j graph schema below, write a Cypher query that would answer the user's question:
             {{schema}}
 
@@ -33,7 +33,6 @@ public class Neo4jContentRetriever implements ContentRetriever {
             Cypher query:
             """);
 
-    
     private static final Type NODE = TypeSystem.getDefault().NODE();
 
     private final Neo4jGraph graph;
@@ -66,7 +65,6 @@ public class Neo4jContentRetriever implements ContentRetriever {
         String cypherQuery = chatLanguageModel.generate(cypherPrompt.text());
         return getBacktickText(cypherQuery);
     }
-
 
     private List<String> executeQuery(String cypherQuery) {
 

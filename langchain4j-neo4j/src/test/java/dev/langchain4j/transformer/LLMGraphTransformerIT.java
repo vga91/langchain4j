@@ -1,5 +1,9 @@
 package dev.langchain4j.transformer;
 
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+
 import dev.langchain4j.data.document.DefaultDocument;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.Metadata;
@@ -7,21 +11,16 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 class LLMGraphTransformerIT {
 
     private static ChatLanguageModel model;
-    
+
     @BeforeAll
     static void beforeAll() {
         model = OpenAiChatModel.builder()
@@ -33,7 +32,6 @@ class LLMGraphTransformerIT {
                 .logResponses(true)
                 .build();
     }
-
 
     @Test
     void testAddGraphDocumentsWithMissingModel() {
@@ -47,14 +45,14 @@ class LLMGraphTransformerIT {
 
     @Test
     void testAddGraphDocumentsWithCustomPrompt() {
-        final List<ChatMessage> prompt = List.of(new UserMessage("just return a null value, don't add any explanation or extra text."));
-        
-        final LLMGraphTransformer transformer = LLMGraphTransformer.builder()
-                .model(model)
-                .prompt(prompt)
-                .build();
+        final List<ChatMessage> prompt =
+                List.of(new UserMessage("just return a null value, don't add any explanation or extra text."));
 
-        Document doc3 = new DefaultDocument("Keanu Reeves acted in Matrix. Keanu was born in Beirut", Metadata.from("key3", "value3"));
+        final LLMGraphTransformer transformer =
+                LLMGraphTransformer.builder().model(model).prompt(prompt).build();
+
+        Document doc3 = new DefaultDocument(
+                "Keanu Reeves acted in Matrix. Keanu was born in Beirut", Metadata.from("key3", "value3"));
         final List<GraphDocument> documents = transformer.convertToGraphDocuments(List.of(doc3));
         assertThat(documents).isEmpty();
     }
@@ -72,7 +70,7 @@ class LLMGraphTransformerIT {
         String vac = "Vieni Avanti Cretino";
         String db = "Dragon Ball";
         String aot = "Attack On Titan";
-        
+
         Document docCat = Document.from("%s is on the %s".formatted(cat, table));
         Document docKeanu = Document.from("%s acted in %s".formatted(keanu, matrix));
         Document docLino = Document.from("%s acted in %s".formatted(lino, vac));
@@ -80,15 +78,14 @@ class LLMGraphTransformerIT {
         Document docHajime = Document.from("%s wrote %s. %s acted in %s".formatted(hajime, aot, levi, aot));
 
         final List<Document> docs = List.of(docCat, docKeanu, docLino, docGoku, docHajime);
-        
-        final LLMGraphTransformer build2 = LLMGraphTransformer.builder()
-                .model(model)
-                .build();
+
+        final LLMGraphTransformer build2 =
+                LLMGraphTransformer.builder().model(model).build();
         final List<GraphDocument> documents2 = build2.convertToGraphDocuments(docs);
-        final Stream<String> expectedNodes = Stream.of(cat, keanu, lino, goku, hajime, levi, table, matrix, vac, db, aot);
+        final Stream<String> expectedNodes =
+                Stream.of(cat, keanu, lino, goku, hajime, levi, table, matrix, vac, db, aot);
         assertThat(documents2).hasSize(5);
         graphDocsAssertions(documents2, expectedNodes, Stream.of("acted", "acted", "acted", "acted", "wr.", "on"));
-
 
         final LLMGraphTransformer build = LLMGraphTransformer.builder()
                 .model(model)
@@ -108,7 +105,6 @@ class LLMGraphTransformerIT {
                 .allowedRelationships(List.of("Writes", "Acted_in"))
                 .build();
 
-
         final List<GraphDocument> documents3 = build3.convertToGraphDocuments(docs);
         assertThat(documents).hasSize(4);
         final String[] elements3 = {keanu, lino, goku, hajime, levi, matrix, vac, db, aot};
@@ -116,14 +112,13 @@ class LLMGraphTransformerIT {
         graphDocsAssertions(documents3, Stream.of(elements3), Stream.of("acted", "acted", "acted", "acted", "wr."));
     }
 
-
     @Test
     void testAddGraphDocumentsWithDeDuplication() {
-        final LLMGraphTransformer transformer = LLMGraphTransformer.builder()
-                .model(model)
-                .build();
+        final LLMGraphTransformer transformer =
+                LLMGraphTransformer.builder().model(model).build();
 
-        Document doc3 = new DefaultDocument("Keanu Reeves acted in Matrix. Keanu was born in Beirut", Metadata.from("key3", "value3"));
+        Document doc3 = new DefaultDocument(
+                "Keanu Reeves acted in Matrix. Keanu was born in Beirut", Metadata.from("key3", "value3"));
 
         final List<Document> documents = List.of(doc3);
         List<GraphDocument> graphDocs = transformer.convertToGraphDocuments(documents);
@@ -134,7 +129,8 @@ class LLMGraphTransformerIT {
         graphDocsAssertions(graphDocs, expectedNodeElements, expectedEdgeElements);
     }
 
-    private static void graphDocsAssertions(List<GraphDocument> documents, Stream<String> expectedNodeElements, Stream<String> expectedEdgeElements) {
+    private static void graphDocsAssertions(
+            List<GraphDocument> documents, Stream<String> expectedNodeElements, Stream<String> expectedEdgeElements) {
         final List<String> actualNodes = getNodeIds(documents);
         final List<String> actualRelationships = getRelationshipIds(documents);
         entitiesAssertions(expectedNodeElements, actualNodes);
@@ -143,9 +139,7 @@ class LLMGraphTransformerIT {
     }
 
     private static void entitiesAssertions(Stream<String> expectedNodeElements, List<String> actualNodes) {
-        final List<String> expectedNodes = expectedNodeElements
-                .sorted()
-                .toList();
+        final List<String> expectedNodes = expectedNodeElements.sorted().toList();
         assertThat(actualNodes.size()).isEqualTo(expectedNodes.size());
         for (int i = 0; i < actualNodes.size(); i++) {
             assertThat(actualNodes.get(i).toLowerCase()).containsPattern("(?i)" + expectedNodes.get(i));
@@ -158,12 +152,11 @@ class LLMGraphTransformerIT {
                 .sorted()
                 .collect(Collectors.toList());
     }
-    
+
     private static List<String> getRelationshipIds(List<GraphDocument> documents2) {
         return documents2.stream()
                 .flatMap(i -> i.getRelationships().stream().map(GraphDocument.Edge::getType))
                 .sorted()
                 .collect(Collectors.toList());
     }
-    
 }

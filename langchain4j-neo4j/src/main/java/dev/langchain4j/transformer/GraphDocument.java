@@ -1,12 +1,11 @@
 package dev.langchain4j.transformer;
 
 import dev.langchain4j.data.document.Document;
+import java.util.Set;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-
-import java.util.Set;
 
 @Getter
 public class GraphDocument {
@@ -47,6 +46,5 @@ public class GraphDocument {
             this.targetNode = targetNode;
             this.type = type;
         }
-
     }
 }

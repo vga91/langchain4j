@@ -1,41 +1,18 @@
 package dev.langchain4j.store.graph.neo4j;
 
-
-import dev.langchain4j.data.document.Document;
-import dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingStore;
-import dev.langchain4j.transformer.GraphDocument;
-import dev.langchain4j.transformer.LLMGraphTransformerUtils;
-import lombok.Builder;
-import lombok.Getter;
-import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
-import org.neo4j.driver.Query;
-import org.neo4j.driver.Record;
-import org.neo4j.driver.Result;
-import org.neo4j.driver.Session;
-import org.neo4j.driver.SessionConfig;
-import org.neo4j.driver.Value;
-import org.neo4j.driver.exceptions.ClientException;
-import org.neo4j.driver.summary.ResultSummary;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
+import static dev.langchain4j.Neo4jUtils.sanitizeOrThrows;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_DATABASE_NAME;
-//import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.DEFAULT_LABEL;
-import static dev.langchain4j.store.embedding.neo4j.Neo4jEmbeddingUtils.sanitizeOrThrows;
-import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
-import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
+
+import lombok.Getter;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.SessionConfig;
 
 @Getter
 public abstract class BaseNeo4jBuilder {
-    // TODO - default label as abstract method
-    
+
     /* default configs */
     public static final String DEFAULT_ID_PROP = "id";
     public static final String DEFAULT_TEXT_PROP = "text";
@@ -53,19 +30,13 @@ public abstract class BaseNeo4jBuilder {
     protected final String sanitizedIdProperty;
     protected final String sanitizedTextProperty;
 
-    /**
-     * Creates an instance of Neo4jEmbeddingStore defining a {@link Driver}
-     * starting from uri, user and password
-     */
-    // todo - the name is strange, ..BuilderBuilder
-//    public static class BaseNeo4jBuilderBuilder {
-//        public BaseNeo4jBuilderBuilder withBasicAuth(String uri, String user, String password) {
-//            return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
-//        }
-//    }
-    
-//    @Builder
-    protected BaseNeo4jBuilder(SessionConfig config, String databaseName, Driver driver, String label, String idProperty, String textProperty) {
+    protected BaseNeo4jBuilder(
+            SessionConfig config,
+            String databaseName,
+            Driver driver,
+            String label,
+            String idProperty,
+            String textProperty) {
         /* required configs */
         this.driver = ensureNotNull(driver, "driver");
         this.driver.verifyConnectivity();
@@ -82,7 +53,7 @@ public abstract class BaseNeo4jBuilder {
         this.sanitizedIdProperty = sanitizeOrThrows(this.idProperty, "idProperty");
         this.sanitizedTextProperty = sanitizeOrThrows(this.textProperty, "textProperty");
     }
-    
+
     protected abstract String getDefaultLabel();
 
     protected Session session() {

@@ -1,8 +1,9 @@
 package dev.langchain4j.store.graph.neo4j;
 
-import dev.langchain4j.data.document.Document;
 import dev.langchain4j.transformer.GraphDocument;
-import dev.langchain4j.transformer.LLMGraphTransformerUtils;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.Getter;
 import org.neo4j.driver.AuthTokens;
@@ -17,18 +18,11 @@ import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.ClientException;
 import org.neo4j.driver.summary.ResultSummary;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import static dev.langchain4j.transformer.LLMGraphTransformerUtils.generateMD5;
-import static dev.langchain4j.transformer.LLMGraphTransformerUtils.removeBackticks;
-
 public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
 
     public static final String DEFAULT_ENTITY_LABEL = "__Entity__";
-    private static final String NODE_PROPERTIES_QUERY = """
+    private static final String NODE_PROPERTIES_QUERY =
+            """
             CALL apoc.meta.data()
             YIELD label, other, elementType, type, property
             WHERE NOT type = "RELATIONSHIP" AND elementType = "node"
@@ -36,7 +30,8 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             RETURN {labels: nodeLabels, properties: properties} AS output
             """;
 
-    private static final String REL_PROPERTIES_QUERY = """
+    private static final String REL_PROPERTIES_QUERY =
+            """
             CALL apoc.meta.data()
             YIELD label, other, elementType, type, property
             WHERE NOT type = "RELATIONSHIP" AND elementType = "relationship"
@@ -44,7 +39,8 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             RETURN {type: nodeLabels, properties: properties} AS output
             """;
 
-    private static final String RELATIONSHIPS_QUERY = """
+    private static final String RELATIONSHIPS_QUERY =
+            """
             CALL apoc.meta.data()
             YIELD label, other, elementType, type, property
             WHERE type = "RELATIONSHIP" AND elementType = "node"
@@ -64,10 +60,10 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             return this.driver(GraphDatabase.driver(uri, AuthTokens.basic(user, password)));
         }
     }
-    
+
     /**
      * Creates an instance of Neo4jGraph
-     * 
+     *
      * @param driver: the {@link Driver} (required)
      * @param config: the {@link SessionConfig}  (optional, default is `SessionConfig.forDatabase(`databaseName`)`)
      * @param databaseName: the optional database name (default: "neo4j")
@@ -76,9 +72,15 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
      * @param textProperty: the optional textProperty property name (default: "text")
      */
     @Builder
-    public Neo4jGraph(SessionConfig config, String databaseName, Driver driver, String label, String idProperty, String textProperty) {
+    public Neo4jGraph(
+            SessionConfig config,
+            String databaseName,
+            Driver driver,
+            String label,
+            String idProperty,
+            String textProperty) {
         super(config, databaseName, driver, label, idProperty, textProperty);
-        
+
         try {
             refreshSchema();
         } catch (ClientException e) {
@@ -88,7 +90,7 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
             throw e;
         }
     }
-    
+
     @Override
     protected String getDefaultLabel() {
         return DEFAULT_ENTITY_LABEL;
@@ -97,7 +99,7 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
     public ResultSummary executeWrite(String queryString) {
         return executeWrite(queryString, Map.of());
     }
-    
+
     public ResultSummary executeWrite(String queryString, Map<String, Object> params) {
 
         try (Session session = session()) {
@@ -126,24 +128,25 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
         List<String> relationshipProperties = formatRelationshipProperties(executeRead(REL_PROPERTIES_QUERY));
         List<String> relationships = formatRelationships(executeRead(RELATIONSHIPS_QUERY));
 
-        this.schema = "Node properties are the following:\n" +
-                String.join("\n", nodeProperties) + "\n\n" +
-                "Relationship properties are the following:\n" +
-                String.join("\n", relationshipProperties) + "\n\n" +
-                "The relationships are the following:\n" +
-                String.join("\n", relationships);
+        this.schema = "Node properties are the following:\n" + String.join("\n", nodeProperties)
+                + "\n\n" + "Relationship properties are the following:\n"
+                + String.join("\n", relationshipProperties)
+                + "\n\n" + "The relationships are the following:\n"
+                + String.join("\n", relationships);
     }
 
     public void addGraphDocuments(List<GraphDocument> graphDocuments, boolean includeSource, boolean baseEntityLabel) {
-        
-        Neo4jGraphUtils.addGraphDocuments(graphDocuments, includeSource, baseEntityLabel,/* idProperty, sanitizedIdProperty, sanitizedTextProperty, sanitizedLabel, */this);
+
+        Neo4jGraphUtils.addGraphDocuments(graphDocuments, includeSource, baseEntityLabel, this);
     }
 
     private List<String> formatNodeProperties(List<Record> records) {
 
         return records.stream()
                 .map(this::getOutput)
-                .map(r -> String.format("%s %s", r.asMap().get("labels"), formatMap(r.get("properties").asList(Value::asMap))))
+                .map(r -> String.format(
+                        "%s %s",
+                        r.asMap().get("labels"), formatMap(r.get("properties").asList(Value::asMap))))
                 .toList();
     }
 
@@ -151,7 +154,8 @@ public class Neo4jGraph extends BaseNeo4jBuilder implements AutoCloseable {
 
         return records.stream()
                 .map(this::getOutput)
-                .map(r -> String.format("%s %s", r.get("type"), formatMap(r.get("properties").asList(Value::asMap))))
+                .map(r -> String.format(
+                        "%s %s", r.get("type"), formatMap(r.get("properties").asList(Value::asMap))))
                 .toList();
     }
 
