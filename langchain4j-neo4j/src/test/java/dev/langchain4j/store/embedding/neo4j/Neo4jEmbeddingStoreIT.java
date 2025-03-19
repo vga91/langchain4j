@@ -16,6 +16,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2q.AllMiniLmL6V2QuantizedEmbeddingModel;
 import dev.langchain4j.store.embedding.CosineSimilarity;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.RelevanceScore;
 import java.util.ArrayList;
@@ -51,7 +52,9 @@ class Neo4jEmbeddingStoreIT {
 
     @Container
     static Neo4jContainer<?> neo4jContainer =
-            new Neo4jContainer<>(DockerImageName.parse("neo4j:5.14.0")).withAdminPassword(ADMIN_PASSWORD);
+            new Neo4jContainer<>(DockerImageName.parse("neo4j:5.26-enterprise"))
+            .withEnv("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes")
+            .withAdminPassword(ADMIN_PASSWORD);
 
     private static final String METADATA_KEY = "test-key";
 
@@ -100,6 +103,55 @@ class Neo4jEmbeddingStoreIT {
         assertThat(match.embedded()).isNull();
 
         checkEntitiesCreated(relevant.size(), iterator -> checkDefaultProps(embedding, match, iterator.next()));
+    }
+
+    @Test
+    void should_add_embedding_with_equivalent_node_key_constraint() {
+
+        final String label = "Label ` with \\ nodekey";
+        final String idProperty = "id ` prop \\ key";
+
+        final String sanitizedLabel = SchemaNames.sanitize(label).get();
+        final String sanitizedId = SchemaNames.sanitize(idProperty).get();
+        final String queryConstraint = "CREATE CONSTRAINT section_id_nk FOR (n:%s) REQUIRE (n.%s) IS NODE KEY"
+                .formatted(sanitizedLabel, sanitizedId);
+        session.executeWrite(
+                tx -> tx.run(queryConstraint).consume()
+        );
+        
+        embeddingStore = Neo4jEmbeddingStore.builder()
+                .withBasicAuth(neo4jContainer.getBoltUrl(), USERNAME, ADMIN_PASSWORD)
+                .label(label)
+                .dimension(384)
+                .idProperty(idProperty)
+                .indexName("sectionEmbeddings")
+                .build();
+
+        Embedding embedding = embeddingModel.embed("embedText").content();
+
+        String id = embeddingStore.add(embedding);
+        assertThat(id).isNotNull();
+
+        final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                .queryEmbedding(embedding)
+                .maxResults(10)
+                .build();
+        final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
+        assertThat(relevant).hasSize(1);
+
+        EmbeddingMatch<TextSegment> match = relevant.get(0);
+        assertThat(match.score()).isCloseTo(1, withPercentage(1));
+        assertThat(match.embeddingId()).isEqualTo(id);
+        assertThat(match.embedding()).isEqualTo(embedding);
+        assertThat(match.embedded()).isNull();
+
+        checkEntitiesCreated(relevant.size(), label, 
+                iterator -> checkDefaultProps(embedding, idProperty, match, iterator.next(), List.of()));
+
+        session.executeWrite(
+                tx -> tx.run("DROP CONSTRAINT section_id_nk").consume()
+        );
     }
 
     @Test

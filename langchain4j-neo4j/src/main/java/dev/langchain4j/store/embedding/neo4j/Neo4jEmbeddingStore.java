@@ -248,6 +248,13 @@ public class Neo4jEmbeddingStore implements EmbeddingStore<TextSegment> {
 
     private void createUniqueConstraint() {
         try (var session = session()) {
+            // check if an equivalent constraint exists 
+            var resConstraint = session.run("SHOW CONSTRAINT WHERE labelsOrTypes = [$label] AND properties = [$idProperty]", 
+                    Map.of("label", this.label, "idProperty", this.idProperty));
+            if (resConstraint.hasNext()) {
+                return;
+            }
+            
             String query = String.format(
                     "CREATE CONSTRAINT IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE",
                     this.sanitizedLabel,
