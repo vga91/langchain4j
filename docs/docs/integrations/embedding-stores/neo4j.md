@@ -25,7 +25,7 @@ With its integration in LangChain4j, the [Neo4j Vector](https://github.com/neo4j
 ## APIs
 LangChain4j provides the following classes for Neo4j integration:
 - `Neo4jEmbeddingStore`: Implements the EmbeddingStore interface, enabling storing and querying vector embeddings in a Neo4j database.
-- `Neo4jContentRetriever`: Supports retrieving original content associated with stored embeddings.
+- `Neo4jText2CypherRetriever`: Supports retrieving original content associated with stored embeddings.
 
 ## Usage Example
 To create `Neo4jEmbeddingStore` instance, you need to provide proper settings:
@@ -134,6 +134,56 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
 ```
+To create `Neo4jText2CypherRetriever` instance, you can execute with some Cypher examples:
+```java
+Neo4jGraph graphStreamer = Neo4jGraph.builder().driver(driver).build();
+List<String> examples = List.of(
+        """
+    # Which streamer has the most followers?
+    MATCH (s:Stream)
+    RETURN s.name AS streamer
+    ORDER BY s.followers DESC LIMIT 1
+    """,
+        """
+    # How many streamers are from Norway?
+    MATCH (s:Stream)-[:HAS_LANGUAGE]->(:Language {{name: 'Norwegian'}})
+    RETURN count(s) AS streamers
+    Note: Do not include any explanations or apologies in your responses.
+    Do not respond to any questions that might ask anything else than for you to construct a Cypher statement.
+    Do not include any text except the generated Cypher statement.
+    """);
+final String textQuery = "Which streamer from Italy has the most followers?";
+Query query = new Query(textQuery);
+
+Neo4jText2CypherRetriever neo4jContentRetrieverWithoutExample = Neo4jText2CypherRetriever.builder()
+        .graph(graphStreamer)
+        .chatLanguageModel(openAiChatModel)
+        .build();
+// empty results
+List<Content> contentsWithoutExample = neo4jContentRetrieverWithoutExample.retrieve(query);
+
+Neo4jText2CypherRetriever neo4jContentRetriever = Neo4jText2CypherRetriever.builder()
+        .graph(graphStreamer)
+        .chatLanguageModel(openAiChatModel)
+        .examples(examples)
+        .build();
+
+final String text = RetryUtils.withRetry(
+        () -> {
+            List<Content> contents = neo4jContentRetriever.retrieve(query);
+            assertThat(contents).hasSize(1);
+            return contents.get(0).textSegment().text();
+        },
+        5);
+
+final String name = driver.session()
+        .run("MATCH (s:Stream)-[:HAS_LANGUAGE]->(l:Language {name: 'Italian'}) RETURN s.name ORDER BY s.followers DESC LIMIT 1")
+        .single()
+        .values()
+        .get(0)
+        .toString();
+System.out.println(name); // Nino Frassica.
+```
 
 ### Simple Flow Examples
 The following are a few examples of the use flow for the two APIs.
@@ -216,11 +266,11 @@ public static void customEmbeddingStore() {
     }
 }
 ```
-- `Neo4jContentRetriever`:
+- `Neo4jText2CypherRetriever`:
 ```java
     private final ChatLanguageModel chatLanguageModel;
 
-    public void neo4jContentRetriever() {
+    public void Neo4jText2CypherRetriever() {
         try (
                 Neo4jContainer<?> neo4jContainer = new Neo4jContainer<>("neo4j:5.16.0")
                                                         .withoutAuthentication()
@@ -234,7 +284,7 @@ public static void customEmbeddingStore() {
                     }
                     graph.refreshSchema();
                     
-                    Neo4jContentRetriever retriever = Neo4jContentRetriever.builder()
+                    Neo4jText2CypherRetriever retriever = Neo4jText2CypherRetriever.builder()
                             .graph(graph)
                             .chatLanguageModel(chatLanguageModel)
                             .build();
