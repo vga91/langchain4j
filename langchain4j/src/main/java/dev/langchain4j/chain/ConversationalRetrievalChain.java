@@ -55,7 +55,9 @@ public class ConversationalRetrievalChain implements Chain<String, String> {
     public String execute(String query) {
 
         UserMessage userMessage = UserMessage.from(query);
+        System.out.println("userMessage = " + userMessage);
         userMessage = augment(userMessage);
+        System.out.println("userMessage = " + userMessage);
         chatMemory.add(userMessage);
 
         AiMessage aiMessage = chatModel.chat(chatMemory.messages()).aiMessage();

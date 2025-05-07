@@ -24,17 +24,52 @@ With its integration in LangChain4j, the [Neo4j Vector](https://github.com/neo4j
 ```
 ## APIs
 LangChain4j provides the following classes for Neo4j integration:
-- `Neo4jEmbeddingStore`: Implements the EmbeddingStore interface, enabling storing and querying vector embeddings in a Neo4j database.
-- `Neo4jText2CypherRetriever`: Supports retrieving original content associated with stored embeddings.
+- `Neo4jEmbeddingStore`:  Implements the EmbeddingStore interface, enabling storing and querying vector embeddings in a Neo4j database.
+- `Neo4jText2CypherRetriever`:  Implements the ContentRetriever interface for generating and executing Cypher queries from user questions, improving content retrieval from Neo4j databases. It translates natural language questions into Cypher queries,
+  leveraging the Neo4j schema calculated via [apoc.meta.data](https://neo4j.com/docs/apoc/current/overview/apoc.meta/apoc.meta.data) procedure.
 
-## Usage Example
-To create `Neo4jEmbeddingStore` instance, you need to provide proper settings:
+## Usage Examples
+
+
+Here is how to create a `Neo4jEmbeddingStore` instance:
+
+```java
+Neo4jEmbeddingStore embeddingStore = Neo4jEmbeddingStore.builder().<builderParameters>.build();
+```
+
+Where `<builderParameters>` must include `dimension` and either `driver` or `withBasicAuth` parameters, along with other optional ones.
+
+Here is the complete builder list:
+
+| Key                 | Default Value| Description        |
+| ------------------- |-----| --------------------- |
+| `driver`            | *Required if `withBasicAuth` is not set*   | The [Java Driver instance](https://neo4j.com/docs/api/java-driver/current/org.neo4j.driver/org/neo4j/driver/Driver.html) |
+| `withBasicAuth`     | *Required if `driver` is not set*       | Creates a [Java Driver instance](https://neo4j.com/docs/api/java-driver/current/org.neo4j.driver/org/neo4j/driver/Driver.html) from `uri`, `user`, and `password` |
+| `dimension`         | *Required*    | The vector's dimension  |
+| `config`            | `org.neo4j.driver.SessionConfig.forDatabase("<databaseName>")`   | The [SessionConfig instance](https://neo4j.com/docs/api/java-driver/current/org.neo4j.driver/org/neo4j/driver/SessionConfig.html)                                |
+| `label`             | `"Document"`| The label name    |
+| `embeddingProperty` | `"embedding"` | The embedding property name |
+| `idProperty`        | `"id"` | The ID property name  |
+| `metadataPrefix`    | `""`       | The metadata prefix   |
+| `textProperty`      | `"text"`  | The text property name |
+| `indexName`         | `"vector"` | The vector index name  |
+| `databaseName`      | `"neo4j"`| The database name  |
+| `retrievalQuery`    | `"RETURN properties(node) AS metadata, node.idProperty AS idProperty, node.textProperty AS textProperty, node.embeddingProperty AS embeddingProperty, score"`  | The retrieval query     |
+
+---
+
+
+
+
+
+Therefore, to create `Neo4jEmbeddingStore` instance, you need to provide proper settings:
 ```java
 // ---> MINIMAL EMBEDDING <---
 Neo4jEmbeddingStore minimalEmbedding = Neo4jEmbeddingStore.builder()
     .withBasicAuth(NEO4J_CONNECTION_STRING, USERNAME, ADMIN_PASSWORD)
     .dimension(384)
     .build();
+
 // ---> CUSTOM EMBEDDING <---
 Neo4jEmbeddingStore customEmbeddingStore = Neo4jEmbeddingStore.builder()
         .withBasicAuth(NEO4J_CONNECTION_STRING, USERNAME, ADMIN_PASSWORD)
@@ -52,22 +87,27 @@ Then you can add the embeddings in many different ways, and search them:
 // ---> ADD MINIMAL EMBEDDING <---
 Embedding embedding = embeddingModel.embed("embedText").content();
 String id = minimalEmbedding.add(embedding); // output: id of the embedding
+
 // ---> ADD MINIMAL EMBEDDING WITH ID <---
 String id = randomUUID();
 Embedding embedding = embeddingModel.embed("embedText").content();
 minimalEmbedding.add(id, embedding);
+
 // ---> ADD EMBEDDING WITH SEGMENT <---
 TextSegment segment = TextSegment.from(randomUUID());
 Embedding embedding = embeddingModel.embed(segment.text()).content();
 String id = minimalEmbedding.add(embedding, segment);
+
 // ---> ADD EMBEDDING WITH SEGMENT AND METADATA <---
 TextSegment segment = TextSegment.from(randomUUID(), Metadata.from(METADATA_KEY, "test-value"));
 Embedding embedding = embeddingModel.embed(segment.text()).content();
 String id = minimalEmbedding.add(embedding, segment);
+
 // ---> ADD MULTIPLE EMBEDDINGS <---
 Embedding firstEmbedding = embeddingModel.embed("firstEmbedText").content();
 Embedding secondEmbedding = embeddingModel.embed("secondEmbedText").content();
 List<String> ids = minimalEmbedding.addAll(asList(firstEmbedding, secondEmbedding));
+
 // ---> ADD MULTIPLE EMBEDDINGS WITH SEGMENTS <---
 TextSegment firstSegment = TextSegment.from("firstText");
 Embedding firstEmbedding = embeddingModel.embed(firstSegment.text()).content();
@@ -87,6 +127,7 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .maxResults(10)
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
 // ---> SEARCH EMBEDDING WITH MIN SCORE <---
 Embedding embedding = embeddingModel.embed("embedText").content();
 String id = minimalEmbedding.add(embedding);
@@ -96,6 +137,7 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .minScore(0.15)
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
 // ---> SEARCH EMBEDDING WITH CUSTOM METADATA PREFIX <---
 String metadataCompleteKey = CUSTOM_METADATA_PREF + METADATA_KEY;
 TextSegment segment = TextSegment.from(randomUUID(), Metadata.from(METADATA_KEY, "test-value"));
@@ -106,6 +148,7 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .maxResults(10)
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
 // ---> SEARCH EMBEDDING WITH CUSTOM ID PROPERTY <---
 String metadataCompleteKey = CUSTOM_METADATA_PREF + METADATA_KEY;
 TextSegment segment = TextSegment.from(randomUUID(), Metadata.from(METADATA_KEY, "test-value"));
@@ -116,6 +159,7 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                 .maxResults(10)
                 .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
 // ---> SEARCH MULTIPLE EMBEDDING <---
 List<String> ids = minimalEmbedding.addAll(asList(firstEmbedding, secondEmbedding));
 final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
@@ -123,6 +167,7 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .maxResults(10)
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
+
 // ---> SEARCH MULTIPLE EMBEDDING WITH SEGMENTS <---
 List<String> ids = minimalEmbedding.addAll(
         asList(firstEmbedding, secondEmbedding),
@@ -134,7 +179,135 @@ final EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
         .build();
 final List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.search(request).matches();
 ```
-To create `Neo4jText2CypherRetriever` instance, you can execute with some Cypher examples:
+
+Here is how to create a `Neo4jText2CypherRetriever` instance:
+
+```java
+Neo4jText2CypherRetriever retriever = Neo4jText2CypherRetriever.builder().<builderParameters>.build();
+````
+
+Here is the complete builder list:
+
+| Key | Default Value     | Description |
+| ---------- | ----------------- | ---------- |
+| `graph`    | *Required*        | See below  |
+| `chatModel` | *Required*        | The [ChatModel](https://github.com/langchain4j/langchain4j/blob/main/langchain4j-core/src/main/java/dev/langchain4j/model/chat/ChatModel.java) implementation used to create the Cypher query from a natural language question |
+| `prompt`   | See example below | The prompt that will be used with the chatModel |
+| `examples` | Empty string      | Additional examples to enrich and improve the result |
+
+To connect to Neo4j we have to leverage the `Neo4jGraph` class this way:
+
+```java
+// Neo4j Java Driver connection instance
+Driver driver = GraphDatabase.driver("<Bolt URL>", AuthTokens.basic("<username>", "<password>"));
+
+Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+    .driver(driver)
+    .build();
+```
+
+Or using `withBasicAuth` as with the `Neo4jEmbeddingStore`:
+
+```java
+Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+    .withBasicAuth("<Bolt URL>", "<username>", "<password>")
+    .build();
+```
+
+And then pass it to the builder:
+
+```java
+Neo4jGraph neo4jGraph = /* Neo4jGraph instance */;
+
+// ChatModel instance, e.g. OpenAiChatModel
+ChatModel chatLanguageModel = OpenAiChatModel.builder()
+        .apiKey(OPENAI_API_KEY)
+        .modelName(GPT_4_O_MINI)
+        .build();
+
+// Neo4jText2CypherRetriever instance
+Neo4jText2CypherRetriever retriever = Neo4jText2CypherRetriever.builder()
+        .graph(neo4jGraph)
+        .chatLanguageModel(chatLanguageModel)
+        .build();
+```
+
+Here is a basic examples:
+```java
+
+// create dataset, for example:
+// CREATE (book:Book {title: 'Dune'})<-[:WROTE {when: date('1999')}]-(author:Person {name: 'Frank Herbert'})");
+
+
+// create a Neo4jGraph instance
+Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+        .driver(/*<Neo4j Driver instance>*/)
+        .build();
+
+// create a Neo4jText2CypherRetriever instance
+Neo4jText2CypherRetriever retriever = Neo4jText2CypherRetriever.builder()
+        .graph(neo4jGraph)
+        .chatLanguageModel(chatLanguageModel)
+        .build();
+
+Query query = new Query("Who is the author of the book 'Dune'?");
+
+// retrieve result
+List<Content> contents = retriever.retrieve(query);
+
+System.out.println(contents.get(0).textSegment().text());
+// example output: "Frank Herbert"
+```
+The above one will execute a chat request with the following prompt string:
+```text
+Task:Generate Cypher statement to query a graph database.
+Instructions
+Use only the provided relationship types and properties in the schema.
+Do not use any other relationship types or properties that are not provided.
+Schema:
+
+Node properties are the following:
+:Book {title: STRING}
+:Person {name: STRING}
+
+Relationship properties are the following:
+:WROTE {when: DATE}
+
+The relationships are the following:
+(:Person)-[:WROTE]->(:Book)
+
+Note: Do not include any explanations or apologies in your responses.
+Do not respond to any questions that might ask anything else than for you to construct a Cypher statement.
+Do not include any text except the generated Cypher statement.
+The question is: {{question}}
+```
+where  `question` is "Who is the author of the book 'Dune'?"
+and `schema` is handled by the apoc.meta.data procedure to retrieve and stringify the current Neo4j schema.
+In this case is
+```text
+Node properties are the following:
+:Book {title: STRING}
+:Person {name: STRING}
+
+Relationship properties are the following:
+:WROTE {when: DATE}
+
+The relationships are the following:
+(:Person)-[:WROTE]->(:Book)
+----
+
+We can also change the default prompt if needed:
+[source,java]
+----
+Neo4jGraph neo4jGraph = /* Neo4jGraph instance */
+
+Neo4jText2CypherRetriever.builder()
+  .neo4jGraph(neo4jGraph)
+  .promptTemplate("<custom prompt>")
+  .build();
+```
+
+You can also execute with some Cypher examples:
 ```java
 Neo4jGraph graphStreamer = Neo4jGraph.builder().driver(driver).build();
 List<String> examples = List.of(
@@ -185,6 +358,40 @@ final String name = driver.session()
 System.out.println(name); // Nino Frassica.
 ```
 
+Moreover, we can enrich and improve the result by just adding few-shot examples to prompt.
+```java
+Neo4jGraph neo4jGraph = /* Neo4jGraph instance */
+
+List<String> examples = List.of(
+    """
+    # Which streamer has the most followers?
+    MATCH (s:Stream)
+    RETURN s.name AS streamer
+    ORDER BY s.followers DESC LIMIT 1
+    """,
+    """
+    # How many streamers are from Norway?
+    MATCH (s:Stream)-[:HAS_LANGUAGE]->(:Language {{name: 'Norwegian'}})
+    RETURN count(s) AS streamers
+    """);
+
+Neo4jText2CypherRetriever neo4jContentRetriever = Neo4jText2CypherRetriever.builder()
+        .graph(neo4jGraph)
+        .chatLanguageModel(openAiChatModel)
+        // add the above examples
+        .examples(examples)
+        .build();
+
+// retrieve the optimized results
+final String textQuery = "Which streamer from Italy has the most followers?";
+Query query = new Query(textQuery);
+List<Content> contents = neo4jContentRetriever.retrieve(query);
+
+System.out.println(contents.get(0).textSegment().text());
+// output: "The most followed italian streamer"
+```
+
+
 ### Simple Flow Examples
 The following are a few examples of the use flow for the two APIs.
 - `Neo4jEmbeddingStore`:
@@ -200,7 +407,6 @@ public static void minimalEmbedding() {
                 .dimension(384)
                 .build();
 
-        System.out.println("Neo4jEmbeddingStoreExample.searchEmbeddingsWithAddAllWithMetadataMaxResultsAndMinScore");
 
         TextSegment segment1 = TextSegment.from("I like football.", Metadata.from("test-key-1", "test-value-1"));
         Embedding embedding1 = embeddingModel.embed(segment1).content();
@@ -243,8 +449,6 @@ public static void customEmbeddingStore() {
                 .textProperty("customText")
                 .build();
         
-        System.out.println("Neo4jEmbeddingStoreExample.searchEmbeddingsWithSingleMaxResult");
-
         TextSegment segment1 = TextSegment.from("I like football.");
         Embedding embedding1 = embeddingModel.embed(segment1).content();
         customEmbeddingStore.add(embedding1, segment1);
