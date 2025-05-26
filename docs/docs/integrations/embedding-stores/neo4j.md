@@ -40,6 +40,7 @@ LangChain4j provides the following classes for Neo4j integration:
 - `KnowledgeGraphWriter`: A class that stores Neo4j nodes and relationships starting from structured data coming from `LLMGraphTransformer`, 
 that is a tool that transform one or more unstructured documents in a graph. It’s database-agnostic, which means that  transforms texts into a set of Nodes and Edges that can also be used for other graph databases like RedisGraph.
 - `Neo4jEmbeddingStoreIngestor`: Implements the `ParentChildEmbeddingStoreIngestor` interface, it performs a multi-stage transformation pipeline: it transforms documents, splits them into segments, optionally applies additional transformations to child segments, generates embeddings, and stores both the parent-child relationships and embeddings in Neo4j.
+- `Neo4jChatMemoryStore`: Implements the `ChatMemoryStore` interface that stores and retrieves conversational messages in a Neo4j graph database. It supports managing chat history with efficient querying and persistence using Neo4j nodes and relationships.
 
 ## Usage Examples
 
@@ -680,16 +681,12 @@ Neo4jEmbeddingStoreIngestor ingestor = Neo4jEmbeddingStoreIngestor.builder()
 
 ---
 
-```
-```
 
 
 
 
 ````markdown
 ### Neo4jChatMemoryStore
-
-`Neo4jChatMemoryStore` is a specialized chat memory implementation that stores and retrieves conversational messages in a Neo4j graph database. It supports managing chat history with efficient querying and persistence using Neo4j nodes and relationships.
 
 Here is how to create a `Neo4jChatMemoryStore` instance:
 
