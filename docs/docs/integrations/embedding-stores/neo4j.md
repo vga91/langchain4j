@@ -71,7 +71,6 @@ Here is the complete builder list:
 | `databaseName`      | `"neo4j"`| The database name  |
 | `retrievalQuery`    | `"RETURN properties(node) AS metadata, node.idProperty AS idProperty, node.textProperty AS textProperty, node.embeddingProperty AS embeddingProperty, score"`  | The retrieval query     |
 
----
 
 
 
@@ -585,8 +584,6 @@ KnowledgeGraphWriter writer = KnowledgeGraphWriter.builder().<builderParameters>
 | `textProperty(String)`   | Sets the property name used for storing document text.     | `text`           |
 | `constraintName(String)` | Sets the name of the uniqueness constraint in Neo4j.       | `knowledge_cons` |
 
----
-
 
 
 ```java
@@ -609,7 +606,6 @@ writer.addGraphDocuments(graphDocuments, true); // set to true to include docume
 ````
 
 
-````markdown
 ### Neo4jEmbeddingStoreIngestor
 
 `Neo4jEmbeddingStoreIngestor` is a specialized ingestor class designed to store embeddings and related data in a Neo4j graph database. It provides configurable options for embedding storage, query templates, and prompts to support various knowledge ingestion and retrieval workflows.
@@ -618,18 +614,11 @@ Here is how to create a `Neo4jEmbeddingStoreIngestor` instance:
 
 ```java
 Neo4jEmbeddingStoreIngestor ingestor = Neo4jEmbeddingStoreIngestor.builder()
-    .driver(neo4jDriver)
-    .retrievalQuery("MATCH (n:Node) WHERE n.id = $id RETURN n")
-    .entityCreationQuery("CREATE (n:Node {id: $id, embedding: $embedding})")
-    .label("Node")
-    .indexName("node_embedding_index")
-    .dimension(384)
-    .systemPrompt("Default system prompt")
-    .userPrompt("Default user prompt")
+    .<builderParameters>
     .build();
-````
+```
 
-Where the builder parameters typically include `driver` and `dimension` as required, plus optional query and prompt customization.
+Where the `<builderParameters>` includes `driver` and `dimension` as required, plus optional customization.
 
 Here is the complete builder list:
 
@@ -644,7 +633,6 @@ Here is the complete builder list:
 | `systemPrompt`        | See class default         | System prompt for LLM-driven tasks                                                                                             |
 | `userPrompt`          | See class default         | User prompt for LLM-driven tasks                                                                                               |
 
-#### Examples
 
 **Basic usage with required parameters:**
 
@@ -679,28 +667,21 @@ Neo4jEmbeddingStoreIngestor ingestor = Neo4jEmbeddingStoreIngestor.builder()
     .build();
 ```
 
----
 
 
 
 
-
-````markdown
 ### Neo4jChatMemoryStore
 
 Here is how to create a `Neo4jChatMemoryStore` instance:
 
 ```java
 Neo4jChatMemoryStore chatMemoryStore = Neo4jChatMemoryStore.builder()
-    .driver(neo4jDriver)
-    .label("ChatMessage")
-    .idProperty("messageId")
-    .conversationIdProperty("conversationId")
-    .timestampProperty("timestamp")
+    .<builderParameters>
     .build();
-````
+```
 
-Where the builder parameters include `driver` as required, and optional properties for label and node property names.
+Where `<builderParameters>` includes `driver` as required, and optional properties for label and node property names.
 
 Here is the complete builder list:
 
@@ -734,7 +715,6 @@ Neo4jChatMemoryStore chatMemoryStore = Neo4jChatMemoryStore.builder()
     .build();
 ```
 
----
 
 
 
