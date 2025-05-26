@@ -456,11 +456,15 @@ These are particularly useful for controlling prompt size and complexity in larg
 ### Example with `sample` and `maxRels`
 
 ```java
+Neo4jGraph neo4jGraph = Neo4jGraph.builder()
+    .driver(driver)
+    .sample(3L) // Sample up to 3 example paths from the graph schema
+    .maxRels(8L) // Explore a maximum of 8 relationships from the start node
+    .build();
+
 Neo4jText2CypherRetriever retriever = Neo4jText2CypherRetriever.builder()
     .graph(neo4jGraph)
     .chatLanguageModel(chatLanguageModel)
-    .sample(3)     // Sample up to 3 example paths from the graph schema
-    .maxRels(8)    // Explore a maximum of 8 relationships from the start node
     .build();
 ```
 
@@ -588,9 +592,7 @@ KnowledgeGraphWriter writer = KnowledgeGraphWriter.builder().<builderParameters>
 
 ```java
 Neo4jGraph graph = Neo4jGraph.builder()
-    .uri("bolt://localhost:7687")
-    .username("neo4j")
-    .password("password")
+    .withBasicAuth("bolt://localhost:7687", "neo4j", "password")
     .build();
 
 KnowledgeGraphWriter writer = KnowledgeGraphWriter.builder()
