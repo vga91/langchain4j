@@ -714,6 +714,184 @@ Neo4jEmbeddingStoreIngestor ingestor = Neo4jEmbeddingStoreIngestor.builder()
 ```
 
 
+### Neo4j Ingestors for Specialized Use Cases
+
+The following classes extend `Neo4jEmbeddingStoreIngestor` to provide pre-configured ingestion logic tailored to specific [GraphRAG](https://graphrag.com/reference/graphrag) patterns. Each ingestor comes with predefined Cypher queries and prompt templates, while still allowing builder-level customization.
+All ingestors inherit the full builder API from `Neo4jEmbeddingStoreIngestor`.
+
+#### SummaryGraphIngestor
+
+
+To implement the [Global Community Summary Retriever concept](https://graphrag.com/reference/graphrag/global-community-summary-retriever/)
+This ingestor extracts and stores concise summaries of documents in the graph using summarization prompts and stores them as nodes labeled `"Summary"` (by default), linked to the original document.
+
+Example usage:
+```java
+SummaryGraphIngestor ingestor = SummaryGraphIngestor.builder()
+        .driver(driver)
+        .embeddingModel(embeddingModel)
+        .questionModel(chatModel)
+        .documentSplitter(splitter)
+        .build();
+````
+
+Unlike `Neo4jEmbeddingStoreIngestor`, it has the following default values:
+
+- `query`: `"CREATE (:SummaryChunk $metadata)"`
+- `systemPrompt`:
+```text
+You are generating concise and accurate summaries based on the information found in the text.
+```
+
+- `userPrompt`:
+```text
+Generate a summary of the following input:
+{{input}}
+
+Summary:
+```
+
+- `embeddingStore`:
+```java
+private static final String DEFAULT_RETRIEVAL = """
+        MATCH (node)<-[:HAS_SUMMARY]-(parent)
+        WITH parent, max(score) AS score, node // deduplicate parents
+        RETURN parent.text AS text, score, properties(node) AS metadata
+        ORDER BY score DESC
+        LIMIT $maxResults""";
+
+private static final String DEFAULT_PARENT_QUERY = """
+        UNWIND $rows AS row
+        MATCH (p:SummaryChunk {parentId: $parentId})
+        CREATE (p)-[:HAS_SUMMARY]->(u:%1$s {%2$s: row.%2$s})
+        SET u += row.%3$s
+        WITH row, u
+        CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
+        RETURN count(*)""";
+
+EmbeddingStore defaultEmbeddingStore = Neo4jEmbeddingStore.builder()
+    .driver(driver)
+    .retrievalQuery(DEFAULT_RETRIEVAL)
+    .entityCreationQuery(DEFAULT_PARENT_QUERY)
+    .label("Summary")
+    .indexName("summary_embedding_index")
+    .dimension(384)
+    .build();
+```
+
+#### HypotheticalQuestionGraphIngestor
+
+To implement the [Hypothetical Question Retriever concept](https://graphrag.com/reference/graphrag/hypothetical-question-retriever/) by generating and embedding hypothetical questions derived from content chunks. This improves semantic search accuracy, especially for indirect or abstract user questions.
+It enhances retrieval when queries don’t directly match document phrasing.
+
+
+Example usage:
+```java
+HypotheticalQuestionGraphIngestor ingestor = HypotheticalQuestionGraphIngestor.builder()
+        .embeddingModel(embeddingModel)
+        .driver(driver)
+        .documentSplitter(splitter)
+        .questionModel(chatModel)
+        .embeddingStore(embeddingStore)
+        .build();
+```
+
+Unlike `Neo4jEmbeddingStoreIngestor`, it has the following default values:
+
+- `query`: `"CREATE (:QuestionChunk $metadata)"`
+- `systemPrompt`:
+```text
+You are generating hypothetical questions based on the information found in the text.
+Make sure to provide full context in the generated questions.
+```
+
+- `userPrompt`:
+```text
+Use the given format to generate hypothetical questions from the following input:
+{{input}}
+
+Hypothetical questions:
+```
+
+- `embeddingStore`:
+```java
+private static final String DEFAULT_RETRIEVAL = """
+        MATCH (node)<-[:HAS_QUESTION]-(parent)
+        WITH parent, max(score) AS score, node // deduplicate parents
+        RETURN parent.text AS text, score, properties(node) AS metadata
+        ORDER BY score DESC
+        LIMIT $maxResults""";
+
+private static final String DEFAULT_PARENT_QUERY = """
+        UNWIND $rows AS question
+        MATCH (p:QuestionChunk {parentId: $parentId})
+        WITH p, question
+        CREATE (q:%1$s {%2$s: question.%2$s})
+        SET q += question.%3$s
+        MERGE (q)<-[:HAS_QUESTION]-(p)
+        WITH q, question
+        CALL db.create.setNodeVectorProperty(q, $embeddingProperty, question.%4$s)
+        RETURN count(*)""";
+
+EmbeddingStore defaultEmbeddingStore = Neo4jEmbeddingStore.builder()
+    .driver(driver)
+    .retrievalQuery(DEFAULT_RETRIEVAL_QUERY)
+    .entityCreationQuery(DEFAULT_PARENT_QUERY)
+    .label("Child")
+    .indexName("child_embedding_index")
+    .dimension(384)
+    .build();
+```
+
+#### ParentChildGraphIngestor
+
+To implement the [Parent-Child Retriever concept](https://graphrag.com/reference/graphrag/parent-child-retriever/).
+It's useful where semantic search is done on child nodes but results are anchored to parent documents.
+This ingestor stores child chunks with embeddings and, by default, links them to parent nodes using `:HAS_CHILD` relationships. Ideal for retrieving relevant fragments while referencing the broader document context.
+
+
+```java
+ParentChildGraphIngestor ingestor = ParentChildGraphIngestor.builder()
+        .embeddingModel(embeddingModel)
+        .driver(driver)
+        .documentSplitter(parentSplitter)
+        .documentChildSplitter(childSplitter)
+        .build();
+```
+
+Unlike `Neo4jEmbeddingStoreIngestor`, it has the following default values:
+
+- `query`: `"CREATE (:ParentChunk $metadata)"`
+
+- `embeddingStore`:
+```java
+private static final String DEFAULT_RETRIEVAL = """
+        MATCH (node)<-[:HAS_CHILD]-(parent)
+        WITH parent, collect(node.text) AS chunks, max(score) AS score
+        RETURN parent.text + reduce(r = "", c in chunks | r + "\n\n" + c) AS text,
+               score,
+               properties(parent) AS metadata
+        ORDER BY score DESC
+        LIMIT $maxResults""";
+
+private static final String DEFAULT_PARENT_QUERY = """
+        UNWIND $rows AS row
+        MATCH (p:ParentChunk {parentId: $parentId})
+        CREATE (p)-[:HAS_CHILD]->(u:%1$s {%2$s: row.%2$s})
+        SET u += row.%3$s
+        WITH row, u
+        CALL db.create.setNodeVectorProperty(u, $embeddingProperty, row.%4$s)
+        RETURN count(*)""";
+
+EmbeddingStore defaultEmbeddingStore = Neo4jEmbeddingStore.builder()
+        .driver(driver)
+        .retrievalQuery(DEFAULT_RETRIEVAL)
+        .entityCreationQuery(DEFAULT_PARENT_QUERY)
+        .label("Child")
+        .indexName("child_embedding_index")
+        .dimension(384)
+        .build();
+```
 
 
 
